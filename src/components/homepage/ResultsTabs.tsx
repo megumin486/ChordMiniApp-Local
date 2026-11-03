@@ -3,13 +3,14 @@
 import React from 'react';
 import { Tabs, Tab } from "@heroui/react";
 
-type TabKey = 'beatChordMap' | 'guitarChords' | 'pianoVisualizer';
+type TabKey = 'beatChordMap' | 'guitarChords' | 'pianoVisualizer' | 'lyricsChords';
 
 interface ResultsTabsProps {
   activeTab: TabKey;
   setActiveTab: (tab: TabKey) => void;
-  /** Deprecated: lyrics are not supported in the local-only build.
-   *  Kept optional so existing call sites keep compiling. */
+  /** Lyrics in this build are local-only: an uploaded lyric file
+   *  (.lrc / .srt / .txt) or lyric tags embedded in the audio file itself.
+   *  The tab is disabled until one of those produced lyrics. */
   showLyrics?: boolean;
   hasCachedLyrics?: boolean;
   /** Optional content rendered to the right of the tab pills (e.g. font slider) */
@@ -29,7 +30,8 @@ const BetaTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const ResultsTabs: React.FC<ResultsTabsProps> = ({
   activeTab,
   setActiveTab,
-  // showLyrics / hasCachedLyrics intentionally unused: lyrics removed
+  showLyrics = false,
+  hasCachedLyrics = false,
   rightContent
 }) => {
   const handleSelectionChange = (key: React.Key) => {
@@ -69,6 +71,11 @@ const ResultsTabs: React.FC<ResultsTabsProps> = ({
         <Tab
           key="pianoVisualizer"
           title={<BetaTitle>Piano</BetaTitle>}
+        />
+        <Tab
+          key="lyricsChords"
+          title={<BetaTitle>Lyrics & Chords</BetaTitle>}
+          isDisabled={!showLyrics && !hasCachedLyrics}
         />
       </Tabs>
 

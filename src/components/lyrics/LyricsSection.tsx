@@ -4,10 +4,7 @@ import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { LyricsData, ChordMarker, SynchronizedLyrics } from '@/types/musicAiTypes';
 import { AnalysisResult } from '@/services/chord-analysis/chordRecognitionService';
-import {
-  LYRICS_TRANSCRIPTION_AVAILABLE,
-  LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE,
-} from '@/utils/localCapabilities';
+import { LOCAL_LYRICS_HINT } from '@/utils/localCapabilities';
 import { SegmentationResult } from '@/types/chatbotTypes';
 import type { BeatInfo } from '@/services/audio/beatDetectionService';
 import { simplifyChord } from '@/utils/chordSimplification';
@@ -248,29 +245,15 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
 
 
   if (!showLyrics) {
-    const musicAiAvailable = LYRICS_TRANSCRIPTION_AVAILABLE;
-
     return (
-      <div className={`p-4 rounded-md transition-colors duration-300 ${
-        musicAiAvailable
-          ? 'bg-blue-100 dark:bg-blue-200 text-blue-700 dark:text-blue-900'
-          : 'bg-orange-100 dark:bg-orange-200 text-orange-700 dark:text-orange-900'
-      }`}>
+      <div className="p-4 rounded-md transition-colors duration-300 bg-blue-100 dark:bg-blue-200 text-blue-700 dark:text-blue-900">
         <p className="font-medium">
-          {hasCachedLyrics ? "Cached Lyrics Available" : "Lyrics Not Transcribed"}
+          {hasCachedLyrics ? 'Cached Lyrics Available' : 'No Lyrics Loaded'}
         </p>
         <p>
-          {!musicAiAvailable ? (
-            <>
-              {LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE}
-              <br />
-              <span className="text-sm">Lyrics are shown when a synced lyric sheet is available locally.</span>
-            </>
-          ) : hasCachedLyrics ? (
-            "Cached lyrics are loading automatically. Click \"AI Transcribe\" to refresh or re-transcribe."
-          ) : (
-            "Click the \"AI Transcribe\" button above to analyze the audio for lyrics. Lyrics transcription is now manual to give you control over when to process vocals."
-          )}
+          {hasCachedLyrics
+            ? 'Cached lyrics are loading automatically.'
+            : LOCAL_LYRICS_HINT}
         </p>
       </div>
     );

@@ -67,7 +67,7 @@ import { useAnalyzePageStoreSync } from './useAnalyzePageStoreSync';
 import { useAnalyzePageLifecycleReset } from './useAnalyzePageLifecycleReset';
 import { shouldShowSnowEffect } from '@/utils/seasonalEffects';
 import { resolveLyricsForChatbotContext } from '@/utils/chatbotLyrics';
-import type { BeatGridTimedLyrics } from '@/components/chord-analysis/GridLyricsRow';
+import { toGridPlainLyrics, toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
 
 interface UseAnalyzePageViewModelParams {
   videoId: string;
@@ -660,10 +660,12 @@ export function useAnalyzePageViewModel({
 
   useYouTubeSetup(videoId, setAudioProcessingState);
 
-  // Grid lyrics came from the LRCLIB search, which was removed in Phase 5.
-  // Keep the props wired so the chord grid / piano roll code paths stay intact.
-  const visibleGridLyrics: BeatGridTimedLyrics | null = null;
-  const visiblePlainLyrics: string | null = null;
+  // Grid lyrics are local-only now: whatever lyrics the user loaded (a lyric
+  // file they picked, or lyric tags embedded in the audio) are laid into the
+  // chord grid rows automatically. The LRCLIB search that used to feed this
+  // was removed in Phase 5.
+  const visibleGridLyrics = useMemo(() => toGridTimedLyrics(lyrics), [lyrics]);
+  const visiblePlainLyrics = useMemo(() => toGridPlainLyrics(lyrics), [lyrics]);
 
   const chatbotLyrics = useMemo(() => resolveLyricsForChatbotContext(
     lyrics,

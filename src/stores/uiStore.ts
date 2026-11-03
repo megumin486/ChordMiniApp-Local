@@ -11,8 +11,9 @@ function identityDevtools<S, Mps extends [] = [], Mcs extends [] = []>(
 }
 
 // UI state types
-// 'lyricsChords' removed: lyrics are not supported in the local-only build.
-export type ActiveTab = 'beatChordMap' | 'guitarChords' | 'pianoVisualizer';
+// Restored for local lyrics: the Lyrics & Chords tab is local-only (a lyric
+// file the user picks, or lyric tags embedded in the audio).
+export type ActiveTab = 'beatChordMap' | 'guitarChords' | 'lyricsChords' | 'pianoVisualizer';
 
 export type RomanNumeralData = {
   analysis: string[];

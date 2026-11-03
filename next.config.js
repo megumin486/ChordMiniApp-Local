@@ -35,6 +35,12 @@ const nextConfig = {
   // Transpile ES modules that need to be converted to CommonJS
   transpilePackages: [],
 
+  // Next.js 16 blocks dev-only resources (chunks, CSS, HMR) when the browser
+  // host is not the origin the dev server announces. On machines where a local
+  // proxy swallows "localhost", the app is opened through 127.0.0.1 instead, so
+  // allow it here. Dev-only: a production build ignores this key.
+  allowedDevOrigins: ['127.0.0.1'],
+
   // Environment variables
   env: {
     CUSTOM_KEY: process.env.CUSTOM_KEY,

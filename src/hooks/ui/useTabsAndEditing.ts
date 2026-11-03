@@ -1,9 +1,8 @@
 import { useState, useCallback } from 'react';
 
 // Tab types
-// NOTE: 'lyricsChords' was removed as part of the local-only conversion.
-// Lyric transcription, sync and translation are not supported.
-type ActiveTab = 'beatChordMap' | 'guitarChords' | 'pianoVisualizer';
+// 'lyricsChords' is restored, still local-only: no transcription/sync/translation.
+type ActiveTab = 'beatChordMap' | 'guitarChords' | 'lyricsChords' | 'pianoVisualizer';
 
 /**
  * Custom hook to manage tab switching and title editing logic

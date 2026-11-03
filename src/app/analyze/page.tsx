@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback, type ComponentProps } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@heroui/react';
 import { addToast } from '@heroui/react';
@@ -61,6 +61,13 @@ const PianoVisualizerTab = dynamic(() => import('@/components/piano-visualizer/P
   ssr: false
 });
 
+// Lyrics are local-only in this build: an uploaded lyric file (.lrc/.srt/.txt)
+// or lyric tags embedded in the audio file. No Music.ai / LRCLib / Genius.
+const LyricsSection = dynamic(() => import('@/components/lyrics/LyricsSection').then(mod => ({ default: mod.LyricsSection })), {
+  loading: () => <div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
+  ssr: false
+});
+
 import { useProcessing } from '@/contexts/ProcessingContext';
 import BeatTimeline from '@/components/analysis/BeatTimeline';
 import KeySignatureSync from '@/components/analysis/KeySignatureSync';
@@ -88,6 +95,8 @@ import { usePitchShiftAudio } from '@/hooks/chord-playback/usePitchShiftAudio';
 import ResultsTabs from '@/components/homepage/ResultsTabs';
 import type { TabKey } from '@/components/homepage/ResultsTabs';
 import type { LyricsData } from '@/types/musicAiTypes';
+import { parseLyricsFile, resolveLocalLyrics } from '@/utils/lyrics/localLyrics';
+import { toGridPlainLyrics, toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
 import { requestSheetSageTranscription } from '@/services/sheetsage/sheetSageTranscriptionClient';
 import { useSheetSageBackendAvailability } from '@/hooks/sheetsage/useSheetSageBackendAvailability';
 import { getSafeBeatModel, getSafeChordModel } from '@/utils/modelFiltering';
@@ -113,7 +122,14 @@ export default function LocalAudioAnalyzePage() {
   const objectUrlRef = useRef<string | null>(null);
   const durationLimitToastShownRef = useRef(false);
 
-  const { lyrics, completeLyricsTranscription } = useLyricsState();
+  const { lyrics, showLyrics, hasCachedLyrics, completeLyricsTranscription, setLyrics, setShowLyrics } = useLyricsState();
+  // Local lyric sources (fully offline): an optional lyric file the user picks,
+  // plus lyric tags embedded in the audio file itself.
+  const [lyricsFile, setLyricsFile] = useState<File | null>(null);
+  // Local lyrics are laid into the chord grid rows automatically (no toggle):
+  // same data the Lyrics & Chords tab renders, just fed to the grid too.
+  const gridTimedLyrics = useMemo(() => toGridTimedLyrics(lyrics), [lyrics]);
+  const gridPlainLyrics = useMemo(() => toGridPlainLyrics(lyrics), [lyrics]);
   const analysisDurationLimitReason = useMemo(
     () => getAnalysisDurationLimitReason(duration),
     [duration],
@@ -519,12 +535,61 @@ export default function LocalAudioAnalyzePage() {
   }, [chordDetector]);
 
   // Handle file upload
+  const handleLyricsFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    setLyricsFile(file);
+
+    try {
+      // Prefer the audio's embedded tags when a lyric file is also present?
+      // No: an explicitly picked lyric file always wins.
+      const resolved = audioFile ? await resolveLocalLyrics(audioFile, file) : null;
+      const data = resolved ? resolved.data : await parseLyricsFile(file);
+      completeLyricsTranscription(data);
+      addToast({
+        title: 'Lyrics loaded',
+        description: `From ${file.name}`,
+        color: 'success',
+      });
+    } catch (error) {
+      addToast({
+        title: 'Could not read that lyric file',
+        description: error instanceof Error ? error.message : 'Unsupported lyric file format.',
+        color: 'danger',
+      });
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
     setAudioFile(file);
+
+    // Local lyrics: surface lyric tags embedded in the uploaded audio file
+    // (and/or the lyric file already picked). No network involved.
+    void resolveLocalLyrics(file, lyricsFile)
+      .then((result) => {
+        if (result) {
+          completeLyricsTranscription(result.data);
+          addToast({
+            title: 'Lyrics loaded',
+            description: result.source === 'lyrics-file'
+              ? 'From the lyric file you picked.'
+              : "Read from the audio file's embedded lyric tags.",
+            color: 'success',
+          });
+        } else if (!lyricsFile) {
+          setLyrics(null);
+          setShowLyrics(false);
+        }
+      })
+      .catch(() => {
+        // Unreadable/absent tags: stay quiet, the lyrics tab explains the local sources.
+      });
 
     // Reset states
     setAudioProcessingState({
@@ -1211,14 +1276,16 @@ const simplifiedChordGridData = useMemo(() => {
     analysisStore.setIsAnalyzing(audioProcessingState.isAnalyzing);
     analysisStore.setAnalysisError(audioProcessingState.error || null);
 
-    // Set stub values for upload page (not used but required for consistency)
+    // Cache/model stubs (unused on the upload page, kept for consistency)
     analysisStore.setCacheAvailable(false);
     analysisStore.setCacheCheckCompleted(true);
     analysisStore.setCacheCheckInProgress(false);
     analysisStore.setModelsInitialized(true);
-    analysisStore.setLyrics(null);
-    analysisStore.setShowLyrics(false);
-    analysisStore.setHasCachedLyrics(false);
+    // Local lyrics (a lyric file the user picked, or lyric tags embedded in the
+    // audio) are mirrored into the store so other surfaces can read them.
+    analysisStore.setLyrics(lyrics);
+    analysisStore.setShowLyrics(showLyrics);
+    analysisStore.setHasCachedLyrics(hasCachedLyrics);
     analysisStore.setIsTranscribingLyrics(false);
     analysisStore.setLyricsError(null);
 
@@ -1235,7 +1302,9 @@ const simplifiedChordGridData = useMemo(() => {
     // CRITICAL: Do NOT include showRomanNumerals, simplifyChords, or other Zustand-managed state
     // Only include local state that needs to be synced to Zustand
     analysisResults, audioProcessingState.isAnalyzing, audioProcessingState.error,
-    isPlaying, currentTime, duration, playbackRate
+    isPlaying, currentTime, duration, playbackRate,
+    // Local lyrics: mirror them into the store whenever they change
+    lyrics, showLyrics, hasCachedLyrics
   ]);
 
   useEffect(() => {
@@ -1277,8 +1346,8 @@ const simplifiedChordGridData = useMemo(() => {
                     <ResultsTabs
                       activeTab={activeTab}
                       setActiveTab={setActiveTab}
-                      showLyrics={false}
-                      hasCachedLyrics={false}
+                      showLyrics={showLyrics}
+                      hasCachedLyrics={hasCachedLyrics}
                     />
                   </div>
                 )}
@@ -1292,6 +1361,19 @@ const simplifiedChordGridData = useMemo(() => {
                         type="file"
                         accept="audio/*"
                         onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Local lyric sheet picker — same control shape as the audio picker */}
+                  <div className="relative inline-block">
+                    <label className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-white font-medium py-2 px-4 rounded-md cursor-pointer transition-colors">
+                      {lyricsFile ? lyricsFile.name : 'Choose Lyrics File'}
+                      <input
+                        type="file"
+                        accept=".lrc,.srt,.txt,.yaml,.yml"
+                        onChange={handleLyricsFileChange}
                         className="hidden"
                       />
                     </label>
@@ -1410,6 +1492,8 @@ const simplifiedChordGridData = useMemo(() => {
                               chordCorrections={chordCorrections}
                               sequenceCorrections={sequenceCorrections}
                               segmentationData={segmentationData}
+                              gridLyrics={gridTimedLyrics}
+                              plainLyrics={gridPlainLyrics}
                             />
                             <div className="mt-3">
                               <BeatTimeline
@@ -1442,6 +1526,8 @@ const simplifiedChordGridData = useMemo(() => {
                         segmentationData={segmentationData}
                         isChordPlaybackEnabled={chordPlayback.isEnabled}
                         audioUrl={audioProcessingState.audioUrl || null}
+                        gridLyrics={gridTimedLyrics}
+                        plainLyrics={gridPlainLyrics}
                       />
                     )}
 
@@ -1461,6 +1547,24 @@ const simplifiedChordGridData = useMemo(() => {
                         audioUrl={audioProcessingState.audioUrl || null}
                         sheetSageResult={sheetSageResult}
                         showMelodicOverlay={isMelodicTranscriptionPlaybackEnabled && hasSheetSageNotes}
+                        gridLyrics={gridTimedLyrics}
+                      />
+                    )}
+
+                    {/* Lyrics & Chords Tab — local sources only: a lyric file the
+                        user picked, or lyric tags embedded in the audio file */}
+                    {activeTab === 'lyricsChords' && (
+                      <LyricsSection
+                        showLyrics={showLyrics}
+                        lyrics={lyrics}
+                        hasCachedLyrics={hasCachedLyrics}
+                        currentTime={currentTime}
+                        fontSize={fontSize}
+                        theme={theme}
+                        analysisResults={analysisResults}
+                        onFontSizeChange={setFontSize}
+                        segmentationData={segmentationData as unknown as ComponentProps<typeof LyricsSection>['segmentationData']}
+                        sequenceCorrections={sequenceCorrections as unknown as ComponentProps<typeof LyricsSection>['sequenceCorrections']}
                       />
                     )}
 

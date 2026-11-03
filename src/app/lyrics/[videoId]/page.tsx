@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import axios from 'axios';
 import LyricsPlayer from '@/components/lyrics/LyricsPlayer';
 import { LyricsData } from '@/types/musicAiTypes';
+import { LOCAL_LYRICS_HINT } from '@/utils/localCapabilities';
 import Link from 'next/link';
 
 /**
@@ -16,39 +16,15 @@ export default function LyricsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lyrics, setLyrics] = useState<LyricsData | null>(null);
+  const [lyrics] = useState<LyricsData | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  // Check for cached lyrics when the component mounts (but don't auto-transcribe)
+  // Local-only build: this page never calls a lyrics backend (the upstream
+  // Music.ai / Genius / LRCLib endpoints were removed in this fork). It just
+  // points the user at the local sources.
   useEffect(() => {
-    const checkCachedLyrics = async () => {
-      if (!videoId) return;
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        // Only check for cached lyrics, don't auto-transcribe
-        const transcribeResponse = await axios.post('/api/transcribe-lyrics', {
-          videoId,
-          checkCacheOnly: true // Only check cache, don't process - audioPath not needed for cache-only
-        });
-
-        if (transcribeResponse.data.success && transcribeResponse.data.lyrics) {
-          setLyrics(transcribeResponse.data.lyrics);
-        } else {
-          // No cached lyrics found - show message to user
-          setError('No lyrics found for this video. Please use the main analyze page to transcribe lyrics first.');
-        }
-      } catch (error: unknown) {
-        console.error('Error checking cached lyrics:', error);
-        setError('No lyrics found for this video. Please use the main analyze page to transcribe lyrics first.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkCachedLyrics();
+    setLoading(false);
+    setError(LOCAL_LYRICS_HINT);
   }, [videoId]);
 
   // Handle auto-scroll toggle
@@ -59,7 +35,7 @@ export default function LyricsPage() {
   return (
     <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Lyrics Transcription</h1>
+        <h1 className="text-2xl font-bold">Lyrics</h1>
 
         <div className="flex items-center space-x-4">
           <div className="flex items-center">
@@ -119,7 +95,9 @@ export default function LyricsPage() {
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded relative">
           <strong className="font-bold">No lyrics available: </strong>
           <span className="block sm:inline">
-            Could not transcribe lyrics for this video. The video may not contain vocals or the audio quality may be too low.
+            This local build never fetches lyrics from a server. Load them on the Analyze page —
+            pick a .lrc/.srt/.txt file next to the audio picker, or use an audio file with lyric
+            tags embedded in it.
           </span>
         </div>
       )}

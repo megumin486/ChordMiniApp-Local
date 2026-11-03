@@ -71,7 +71,7 @@ export interface AudioProcessingServiceDependencies {
   setLyrics: (lyrics: LyricsData) => void;
   setShowLyrics: (show: boolean) => void;
   setHasCachedLyrics: (cached: boolean) => void;
-  setActiveTab: (tab: 'beatChordMap' | 'guitarChords' | 'pianoVisualizer') => void;
+  setActiveTab: (tab: 'beatChordMap' | 'guitarChords' | 'lyricsChords' | 'pianoVisualizer') => void;
   setIsTranscribingLyrics: (transcribing: boolean) => void;
   setLyricsError: (error: string | null) => void;
 

@@ -4,6 +4,7 @@ import React from 'react';
 import { HiPencil, HiCheck, HiXMark } from 'react-icons/hi2';
 import { BsSnow } from 'react-icons/bs';
 import AppTooltip from '@/components/common/AppTooltip';
+import { LOCAL_LYRICS_HINT } from '@/utils/localCapabilities';
 
 interface AnalysisHeaderProps {
   videoTitle: string;
@@ -51,7 +52,7 @@ const AnalysisHeader: React.FC<AnalysisHeaderProps> = ({
     : 'Show corrected enharmonic spellings';
 
   const transcribeTooltip = !canTranscribe
-    ? 'Lyrics transcription needs Music.ai, which this local build does not include'
+    ? LOCAL_LYRICS_HINT
     : isTranscribingLyrics
       ? 'Transcription in progress...'
       : 'AI transcription from audio (word-level sync)';
@@ -159,7 +160,7 @@ const AnalysisHeader: React.FC<AnalysisHeaderProps> = ({
                   {isTranscribingLyrics
                     ? 'Transcribing...'
                     : !canTranscribe
-                      ? 'API Key Required'
+                      ? 'Not Included'
                       : (hasCachedLyrics ? 'Re-transcribe' : 'Lyrics Transcribe')}
                 </button>
               </span>
@@ -213,7 +214,7 @@ const AnalysisHeader: React.FC<AnalysisHeaderProps> = ({
                 {isTranscribingLyrics
                   ? 'Transcribing...'
                   : !canTranscribe
-                    ? 'API Key Required'
+                    ? 'Not Included'
                     : (hasCachedLyrics ? 'Re-transcribe' : 'Lyrics Transcribe')}
               </button>
             </span>

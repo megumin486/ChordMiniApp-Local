@@ -25,3 +25,14 @@ export const LYRICS_TRANSCRIPTION_AVAILABLE = false;
 /** Shown wherever lyrics transcription used to be advertised as an option. */
 export const LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE =
   'Lyrics transcription (Music.ai) is not available in this local-only build';
+
+/**
+ * Lyrics themselves ARE available in this build, but only from local sources:
+ * a lyric file the user uploads (.lrc / .srt / .txt / .yaml) or lyric tags
+ * already embedded in the audio file. Nothing is fetched from the network.
+ */
+export const LOCAL_LYRICS_AVAILABLE = true;
+
+/** Shown wherever lyrics are advertised, so the copy matches the local-only build. */
+export const LOCAL_LYRICS_HINT =
+  'Lyrics are local-only here: upload a lyric file (.lrc, .srt, .txt) next to your audio, or use the lyric tags already embedded in your audio file.';

@@ -22,8 +22,12 @@ const ChordGridContainer = dynamic(() => import('@/components/chord-analysis/Cho
   ssr: false,
 });
 
-// LyricsSection removed: lyric transcription / sync / translation are not
-// supported in the local-only build (FEATURE_SCOPE items 18-21).
+// Lyrics are local-only in this build (uploaded lyric file or lyric tags
+// embedded in the audio file); the cloud transcription path is gone.
+const LyricsSection = dynamic(() => import('@/components/lyrics/LyricsSection').then(mod => ({ default: mod.LyricsSection })), {
+  loading: () => <LyricsSkeleton />,
+  ssr: false,
+});
 
 const GuitarChordsTab = dynamic(() => import('@/components/chord-analysis/GuitarChordsTab'), {
   loading: () => <div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
@@ -158,6 +162,21 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
             sheetSageResult={sheetSageResult}
             showMelodicOverlay={props.showMelodicOverlay}
             gridLyrics={props.gridLyrics}
+          />
+        )}
+
+        {props.activeTab === 'lyricsChords' && (
+          <LyricsSection
+            showLyrics={props.showLyrics}
+            lyrics={props.lyrics}
+            hasCachedLyrics={props.hasCachedLyrics}
+            currentTime={props.currentTime}
+            fontSize={props.fontSize}
+            theme={props.theme}
+            analysisResults={props.analysisResults}
+            onFontSizeChange={props.onFontSizeChange}
+            segmentationData={props.segmentationData as ComponentProps<typeof LyricsSection>['segmentationData']}
+            sequenceCorrections={props.sequenceCorrections as ComponentProps<typeof LyricsSection>['sequenceCorrections']}
           />
         )}
       </div>

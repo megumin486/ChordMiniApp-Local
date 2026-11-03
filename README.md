@@ -1,520 +1,361 @@
-# ChordMini
+# ChordMini — Local Edition
 
-Open-source music analysis tool for chord recognition, beat tracking, piano visualizer, guitar diagrams, lyrics synchronization, and experimental melody transcription. 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Cloud: none](https://img.shields.io/badge/cloud-none-success.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D20.9-brightgreen.svg)
+![Python](https://img.shields.io/badge/python-3.9--3.11-blue.svg)
+![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)
+![Flask](https://img.shields.io/badge/Flask-API-lightgrey.svg)
 
-## 🤝 Contributing
+ChordMini is a music analysis web app: upload an audio file and it recognizes chords, tracks beats, detects key and modulation changes, and turns the result into a chord grid, Roman numeral analysis, guitar diagrams, a piano roll with MIDI export, local lyric sheets and an offline AI prompt export.
 
-We welcome and appreciate all contributions made to the project, whether it's code, documentation, testing, or feedback. Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to get involved.
+This repository is a **local-only fork** of [ptnghia-j/ChordMiniApp](https://github.com/ptnghia-j/ChordMiniApp). The analysis pipeline, the model weights and the interface are the original project's; everything that needed an account or a server has been removed.
 
----
+- **No account, no API key.** No Firebase, Gemini, Music.ai or YouTube credentials — there is nothing to sign up for and no key to paste into a config file.
+- **Your audio never leaves your machine.** The app performs no outbound requests of its own; the only network access happens once, while installing dependencies and model weights.
+- **Lyrics are local too.** They come from lyric tags inside the audio file you upload, or from a `.lrc` / `.srt` / `.txt` / `.yaml` file you pick. No lyrics service is contacted and nothing is translated.
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Quick start](#quick-start)
+  - [Manual installation](#manual-installation)
+- [Usage](#usage)
+- [Optional: melody transcription](#optional-melody-transcription)
+- [Configuration](#configuration)
+- [Local data, cache & privacy](#local-data-cache--privacy)
+- [Architecture & API](#architecture--api)
+- [Project structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [Differences from upstream](#differences-from-upstream)
+- [Contributing](#contributing)
+- [License](#license)
+- [Citation](#citation)
+- [Acknowledgements](#acknowledgements)
+
+## Features
+
+### Chord and beat analysis
+
+![Chord grid](public/beatchord_grid.png)
+
+Synchronized chord recognition and beat tracking displayed as a grid, with Roman numeral analysis, simplified chord notation and manual chord corrections. Everything is computed on your machine.
+
+### Guitar diagrams
+
+![Guitar diagrams](public/guitar_diagrams.png)
+
+Interactive fingerings from the [chords-db](https://github.com/tombatossals/chords-db) database: several positions per chord, slash-chord inversions where the database has a shape for them, and a view synced to beat playback.
+
+### Piano visualizer and MIDI export
+
+![Piano visualizer](public/piano_visualizer.png)
+
+A piano roll with falling notes synchronized to chord playback, a scrolling chord strip, interactive keys, and MIDI export for any DAW.
+
+### Local lyric sheets
+
+![Lyrics with chord grid](public/beatchord_grid_lyrics.png)
+
+Lyrics appear on the **Lyrics & Chords** tab and, once loaded, are also laid into the chord grid rows automatically — no toggle. Read from ID3v2 `USLT`/`SYLT` tags, MP4 `©lyr`, or FLAC/OGG Vorbis comments in the audio you upload, or from a lyric file you pick next to the audio picker. There is no translation step.
+
+### Offline AI prompt export
+
+The hosted AI assistant of the original app is replaced by an export: the analysis is packed into a structured prompt (three detail levels × three templates, plus guardrail instructions) that you copy into whichever LLM you already use. The app itself makes no request when generating it.
+
+### Optional melody transcription
+
+![Melody](public/melody.png)
+![Sheet music](public/sheet.png)
+
+With the optional Sheet Sage service running, an estimated melodic line can be added on top of the piano visualizer, with its own playback, caching and MIDI export. This is experimental — inference is slower than the beat/chord pipeline — and it needs the extra service described [below](#optional-melody-transcription).
+
+### Homepage and recent analyses
+
+![Homepage light](public/homepage.png)
+![Homepage dark](public/homepage_dark.png)
+
+Analyses of files you have already processed are served from the local cache, so re-opening one is instant.
+
+## Requirements
+
+| | |
+| --- | --- |
+| **Operating system** | Linux or macOS. **On Windows use WSL2/Ubuntu** — a native Windows install is not reliable, because `spleeter` and `madmom` pull in conflicting dependencies. |
+| **Node.js** | 20.9 or newer, with npm 10 or newer |
+| **Python** | 3.9 – 3.11 (3.10 recommended); the launcher picks whichever is available |
+| **Git** | any recent version |
+| **Disk space** | plan for ~10 GB free: the Python environment is the bulk (several GB — PyTorch and TensorFlow), frontend packages ≈1 GB, model weights ≈190 MB, plus a few GB of frontend build cache |
+| **GPU** | not required — everything runs on the CPU |
+
+Optional: **Git LFS** if you also want the SongFormer checkpoints (skipped by default), **Docker** for the melody service, **FluidSynth** for MIDI synthesis if chord playback is silent.
+
+## Installation
+
+### Quick start
+
+```bash
+git clone --recurse-submodules https://github.com/megumin486/ChordMiniApp-Local.git
+cd ChordMiniApp-Local
+./start.sh --prod
+```
+
+Open **<http://127.0.0.1:3000>**. `Ctrl+C` stops the frontend and the backend together.
+
+The first run takes a few minutes and does all of the following:
+
+1. creates `.env.local` from `.env.example` (the defaults are correct for a local run),
+2. downloads the three model submodules (~190 MB in total),
+3. creates `python_backend/.venv` and installs the backend requirements, falling back to the `spleeter`-free set if the full install fails,
+4. installs the frontend packages (`npm ci`),
+5. builds the frontend, then starts the Flask backend on `5001` and the frontend on `3000`.
+
+Runtime logs are written to `/tmp/chordmini-backend.log` and `/tmp/chordmini-frontend.log`. If a port is already taken the launcher stops instead of starting a second copy — it never kills processes it did not start.
+
+**Use `--prod` day to day.** It builds once and serves the prebuilt app, so pages appear immediately. Plain `./start.sh` starts the development server instead: faster to start, but each page is compiled on first visit and may take several seconds.
+
+| Command | What it does |
+| --- | --- |
+| `./start.sh --prod` | build once, then serve in production mode — **recommended** |
+| `./start.sh` | development server (on-demand compilation, hot reload) |
+| `./start.sh --check` | report only: toolchain, virtualenv, dependencies, submodules, ports |
+| `./start.sh --setup-only` | prepare everything, start nothing |
+| `./start.sh --lfs` | also fetch the SongFormer Git LFS checkpoints |
+| `./start.sh --no-backend` / `--no-frontend` | start only one side |
+| `BACKEND_PORT=… FRONTEND_PORT=… ./start.sh` | run on different ports |
+
+### Manual installation
+
+<details>
+<summary>Install and run both services by hand</summary>
+
+1. **Clone and configure**
+
+   ```bash
+   git clone --recurse-submodules https://github.com/megumin486/ChordMiniApp-Local.git
+   cd ChordMiniApp-Local
+   cp .env.example .env.local
+   ```
+
+   Git may mention `python_backend/beat_transformer_minimal/Beat-Transformer`: that is a legacy submodule entry with no content in this repository. The three that matter are `python_backend/models/Beat-Transformer`, `Chord-CNN-LSTM` and `ChordMini`.
+
+2. **Backend** — terminal 1
+
+   ```bash
+   cd python_backend
+   python3.10 -m venv .venv
+   .venv/bin/pip install --upgrade pip setuptools wheel
+   .venv/bin/pip install "Cython>=0.29.0" numpy==1.26.4
+   .venv/bin/pip install git+https://github.com/CPJKU/madmom
+   .venv/bin/pip install -r requirements.txt
+   .venv/bin/python app.py
+   ```
+
+   If `pip install -r requirements.txt` fails on `spleeter`, install everything else:
+
+   ```bash
+   grep -v '^spleeter==' requirements.txt | grep -v '^typer==' > /tmp/requirements_nospleeter.txt
+   .venv/bin/pip install --no-cache-dir -r /tmp/requirements_nospleeter.txt
+   ```
+
+3. **Frontend** — terminal 2
+
+   ```bash
+   npm ci
+   npm run dev                 # development
+   # or
+   npm run build && npm start  # production mode
+   ```
+
+4. **Open** <http://127.0.0.1:3000>.
+
+</details>
+
+## Usage
+
+1. Open <http://127.0.0.1:3000> in your browser (use `127.0.0.1`, not `localhost` — the app builds its absolute links on `127.0.0.1`).
+2. Pick an audio file with **Choose Audio File** (MP3, WAV, FLAC, M4A, OPUS, OGG, AIFF, WebM). Optionally pick a `.lrc` / `.srt` / `.txt` / `.yaml` file with **Choose Lyrics File**, or rely on lyric tags already embedded in the audio.
+3. Press **Analyze Audio** and wait for the analysis to finish. Results from a file you have analyzed before come back instantly from the local cache.
+4. Explore the result tabs:
+
+   | Tab | Content |
+   | --- | --- |
+   | **Beat & Chord Map** | Chord grid over the beat timeline, with the local lyric rows layered in when lyrics are loaded |
+   | **Guitar** | Chord diagrams synchronized to playback |
+   | **Piano** | Piano roll, scrolling chord strip and MIDI export |
+   | **Lyrics & Chords** | Full lyric sheet with chord playback |
+
+   Playback controls, key signature, Roman numerals and chord simplification are available on these tabs. The upload page also shows a local cache panel where individual entries or the whole cache can be deleted.
+
+**Ports.** Frontend `3000`, backend `5001`, optional melody service `8082`. The backend deliberately uses `5001` instead of `5000`, which macOS reserves for AirPlay.
+
+**Health check.**
+
+```bash
+curl http://127.0.0.1:5001/health
+# {"status": "healthy"}
+```
+
+## Optional: melody transcription
+
+Sheet Sage is not bundled; build and run it as its own service:
+
+```bash
+cd sheetsage
+docker build --platform=linux/amd64 -t sheetsage-backend:local .
+docker run --rm --platform=linux/amd64 -p 8082:8082 -v "$(pwd)/cache:/app/cache" sheetsage-backend:local
+```
+
+Then point the frontend at it with `SHEETSAGE_API_URL=http://localhost:8082` in `.env.local` (`./start.sh --prod` exports this for you). Without the service the melody toggle reports itself as unavailable and nothing else is affected. See [sheetsage/README.md](sheetsage/README.md).
+
+## Configuration
+
+**Frontend — `.env.local`** (copied from `.env.example`, correct as-is):
+
+```bash
+PYTHON_API_URL=http://127.0.0.1:5001        # Flask backend, used by the app's own server routes
+NEXT_PUBLIC_BASE_URL=http://127.0.0.1:3000  # origin used for the app's absolute links
+# SHEETSAGE_API_URL=http://localhost:8082   # optional, see the melody section
+# CHORDMINI_DEBUG_DIR=/tmp                  # optional, writes JSONL debug logs
+```
+
+**Backend — environment variables** (all optional, e.g. in `python_backend/.env`):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CHORDMINI_DATA_DIR` | `python_backend/data` | directory holding the cache database and audio store |
+| `CHORDMINI_CACHE_DB` | `<data>/chordmini_cache.db` | SQLite cache file |
+| `CHORDMINI_AUDIO_DIR` | `<data>/audio` | content-addressed audio store |
+| `CHORDMINI_AUDIO_MAX_MB` | `2048` | storage budget for cached audio (least-recently-used is evicted first) |
+| `CHORDMINI_CACHE_TTL_DAYS` | `30` | retention for analyses and audio |
+| `CHORDMINI_KV_TTL_DAYS` | `0` | key/value cache lifetime; `0` means never expire |
+| `FLASK_MAX_CONTENT_LENGTH_MB` | `150` | largest upload the backend accepts |
+| `CORS_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | origins allowed to call the backend |
+| `PORT` | `5001` | backend port |
+
+## Local data, cache & privacy
+
+Everything the app produces lives in a single directory inside the backend:
+
+```
+python_backend/data/
+├── chordmini_cache.db                  # SQLite: kv_cache, audio_files, analyses
+└── audio/<first 2 hex>/<sha256><ext>   # uploaded audio, content-addressed
+```
+
+- The same audio uploaded twice is stored once and its analysis is reused.
+- The audio store is capped at 2048 MB and evicts least-recently-used files first; analyses and audio expire after 30 days.
+- The cache is checked and cleaned when the backend starts, and the upload page has a panel to clear everything or delete a single entry.
+- `rm -rf python_backend/data` resets the app to a clean state.
+- Nothing about your files is sent anywhere; no analysis leaves the process.
+
+## Architecture & API
+
+A Next.js app (`src/`, port 3000) serves the interface and its own small API layer for local cache access; it calls a Flask backend (`python_backend/`, port 5001) for the audio analysis itself. Model weights live in the repository as submodules and run on the CPU.
+
+Selected backend endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/detect-beats` | Beat tracking (Beat-Transformer, madmom) |
+| `POST` | `/api/recognize-chords` | Chord recognition (Chord-CNN-LSTM, BTC-SL, BTC-PL) |
+| `POST` | `/api/analyze-harmony` | Roman numerals, key and modulation analysis (local rule engine, version 5) |
+| `GET` | `/api/analyze-harmony/info` | Engine version and capabilities |
+| `GET` | `/api/model-info` | Available beat and chord models |
+| `GET` | `/health` | Health check |
+| `GET` | `/api/docs`, `/docs` | Self-describing API summary |
+| `GET` | `/api/cache/stats`, `/api/cache/recent` | Cache statistics and recent entries |
+| `POST` | `/api/cache/clear` | Clear the cache |
+| `POST` | `/api/audio/store` | Store audio in the content-addressed store |
+| `GET`, `DELETE` | `/api/audio/<audio_id>` | Fetch or delete one stored audio entry |
+
+Some routes inherited from upstream (for example those with a `-firebase` suffix) are still registered for compatibility, but this frontend does not call them.
+
+## Project structure
+
+```
+ChordMiniApp-Local/
+├── start.sh                  # one-command launcher (setup, build, run, stop)
+├── src/                      # Next.js frontend and its local API routes
+├── python_backend/           # Flask API, models, local cache
+│   ├── app.py
+│   ├── blueprints/           # beats, chords, harmony, cache, health, docs
+│   ├── models/               # Beat-Transformer, Chord-CNN-LSTM, ChordMini (submodules)
+│   ├── services/
+│   ├── data/                 # created on first run (SQLite cache + audio store)
+│   └── requirements.txt
+├── sheetsage/                # optional melody service, with its own README
+├── SongFormer/               # segmentation model; code kept, UI entry disabled
+├── public/                   # static assets and screenshots
+├── __tests__/                # Jest suite
+├── config/, docker/, scripts/
+├── .env.example              # copied to .env.local on first run
+└── package.json
+```
+
+## Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| `port 5001 is already in use` (or 3000) | Something else is listening there. Stop it, or run `BACKEND_PORT=5002 FRONTEND_PORT=3001 ./start.sh` and update `.env.local` to match. |
+| Blank or unstyled page | Open `http://127.0.0.1:3000`, not `localhost:3000`. |
+| Development mode feels slow | That is `next dev`: every page compiles on first visit. Use `./start.sh --prod`. |
+| The build is killed or takes very long | It needs roughly 4 GB of free memory; `--prod` already sets `NODE_OPTIONS=--max-old-space-size=4096`. Close other heavy applications. |
+| `Failed to fetch` / `Network Error` in the browser | The backend is not running. `curl http://127.0.0.1:5001/health` should answer `{"status": "healthy"}`. |
+| The melody toggle is greyed out | Expected without the Sheet Sage service — see [Optional: melody transcription](#optional-melody-transcription). |
+| A Python import fails | Activate the environment (`cd python_backend && source .venv/bin/activate`) and reinstall `-r requirements.txt`. |
+| Chord playback is silent | Install FluidSynth for MIDI synthesis: `sudo apt install fluidsynth`, `brew install fluidsynth`, or `choco install fluidsynth`. |
+| Git complained about a submodule while cloning | The legacy `beat_transformer_minimal` entry; safe to ignore. The three model submodules are what count. |
+
+## Differences from upstream
+
+| Original project | In this fork |
+| --- | --- |
+| Gemini for Roman numerals, enharmonic correction and key detection | Local rule-based harmony engine (`POST /api/analyze-harmony`) plus audio-based key detection |
+| Firebase authentication, Firestore, Cloud Storage | SQLite cache and a content-addressed audio folder on disk |
+| Music.ai lyric transcription; LRCLIB / Genius lyric lookup; translation | Removed — lyrics come from embedded tags or a file you pick, with no translation |
+| YouTube URL input, YouTube search, `yt-dlp` extraction | Removed — analysis starts from a local file |
+| Hosted AI assistant / chatbot | Replaced by the offline AI prompt export |
+| SongFormer segmentation overlays | Code and service documentation remain; the UI entry point is disabled |
+| Sheet Sage on Cloud Run | Kept as an optional local service on port `8082` |
+| Cloud and Docker deployment files, upstream CI workflows | Still in the tree for reference; not part of the supported setup |
+
+## Contributing
+
+Contributions are welcome — bug reports, documentation, testing and code. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE). Original project: [ptnghia-j/ChordMiniApp](https://github.com/ptnghia-j/ChordMiniApp).
 
 ## Citation
 
-If you use or reference ChordMini in your work and find it useful, please cite:
+If you use ChordMini in academic work, please cite:
 
-**BibTeX:**
 ```bibtex
 @misc{phan2026enhancingautomaticchordrecognition,
-      title={Enhancing Automatic Chord Recognition via Pseudo-Labeling and Knowledge Distillation}, 
+      title={Enhancing Automatic Chord Recognition via Pseudo-Labeling and Knowledge Distillation},
       author={Nghia Phan and Rong Jin and Gang Liu and Xiao Dong},
       year={2026},
       eprint={2602.19778},
       archivePrefix={arXiv},
       primaryClass={cs.SD},
-      url={https://arxiv.org/abs/2602.19778}, 
+      url={https://arxiv.org/abs/2602.19778},
 }
 ```
 
-**Plain text (for non-LaTeX users):**
-> Nghia Phan, Rong Jin, Gang Liu, and Xiao Dong. "Enhancing Automatic Chord Recognition via Pseudo-Labeling and Knowledge Distillation." arXiv preprint arXiv:2602.19778, 2026. https://arxiv.org/abs/2602.19778
-
-
-## Features Overview
-
-### 🏠 Homepage Interface
-![ChordMini Homepage Light](public/homepage.png)
-![ChordMini Homepage Dark](public/homepage_dark.png)
-
-Clean, intuitive interface for YouTube search, URL input, and recent video access.
-
-### 🎵 Beat & Chord Analysis
-![Beat Chord Grid](public/beatchord_grid.png)
-![Beat Chord with segmentation](public/beatchord_grid_seg.png)
-![Beat Chord Grid with Lyrics](public/beatchord_grid_lyrics.png)
-
-Chord progression visualization with synchronized beat detection and grid layout with add-on features: Roman Numeral Analysis, Key Modulation Signals, Simplified Chord Notation, Enhanced Chord Correction, and **song segmentation overlays** for structural sections like intro, verse, chorus, bridge, and outro.
-
-### 🎵 Guitar Diagrams
-
-![Guitar Diagrams](public/guitar_diagrams.png)
-
-Interactive guitar chord diagrams with **accurate fingering patterns** from the official @tombatossals/chords-db database, featuring multiple chord positions, synchronized beat grid integration, and exact slash-chord matching when the database includes a dedicated inversion shape.
-
-### 🎹 Piano Visualizer 
-![Piano Visualizer](public/piano_visualizer.png)
-
-Real-time piano roll visualization with falling MIDI notes synchronized to chord playback. Features a scrolling chord strip, interactive keyboard highlighting, smoother playback-synced rendering, segmentation-aware dynamics shaping, and **MIDI file export** for importing chord progressions into any DAW.
-
-### 🎻 Experimental Melody Transcription
-![Melody](public/melody.png)
-![Sheet Music](public/sheet.png)
-
-Sheet Sage can optionally add an estimated melodic line on top of the Piano Visualizer, with separate playback, caching, and MIDI export support. This feature is still experimental: inference is slower than the main beat/chord pipeline, and note timing or accuracy may be limited.
-
-###  🎤 Lead Sheet with AI Assistant
-![Lead Sheet with AI](public/leadsheet.png)
-
-Synchronized lyrics transcription with AI chatbot for contextual music analysis and translation support.
-
----
-
-## 🚀 Quick Setup
-
-### Prerequisites
-- **Node.js 20.9+** and **npm 10+**
-- **Python 3.10.x** (3.10.16 recommended for the backend)
-- **Docker** (recommended for the standalone Sheet Sage melody service)
-- **Git LFS** (for SongFormer checkpoints)
-- **Firebase account** (free tier)
-- **Gemini API** (free tier)
-
-### Setup Steps
-
-1. **Clone and install**
-   Clone with submodules in one command (for fresh clones)
-   ```bash
-   git lfs install
-   git clone --recursive https://github.com/ptnghia-j/ChordMiniApp.git
-   cd ChordMiniApp
-   git lfs pull
-   npm install
-   ```
-
-   #### If you already cloned the repo before SongFormer was added
-   ```bash
-   git pull
-   git lfs pull
-   ```
-
-#### Verify that `git lfs pull` completed
-> [!NOTE]
-> `git lfs pull` downloads the large SongFormer model files referenced by this repo, including the checkpoint binaries stored as Git LFS objects.
-
-#### Verify that submodules are populated
-```bash
-ls -la python_backend/models/Beat-Transformer/
-ls -la python_backend/models/Chord-CNN-LSTM/
-ls -la python_backend/models/ChordMini/
-```
-
-> [!NOTE]
-> If chord recognition encounters an issue with FluidSynth, install it for MIDI synthesis.
->
-> ```bash
-> # --- Windows ---
-> choco install fluidsynth
->
-> # --- macOS ---
-> brew install fluidsynth
->
-> # --- Linux (Debian/Ubuntu-based) ---
-> sudo apt update
-> sudo apt install fluidsynth
-> ```
-
-2. **Environment setup**
-   ```bash
-   cp .env.example .env.local
-   ```
-
-   Edit `.env.local`.
-
-   Required for local frontend + main Python backend:
-   ```bash
-   PYTHON_API_URL=http://localhost:5001
-   NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-   NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
-   ```
-
-   Optional feature backends and feature keys:
-   ```bash
-   LOCAL_SONGFORMER_API_URL=http://localhost:8080
-   LOCAL_SHEETSAGE_API_URL=http://localhost:8082
-   NEXT_PUBLIC_YOUTUBE_API_KEY=your_youtube_api_key
-   MUSIC_AI_API_KEY=your_music_ai_key
-   GEMINI_API_KEY=your_gemini_api_key
-   GENIUS_API_KEY=your_genius_api_key
-   ```
-   After bucket CORS is configured for your production domain, you can also enable direct Firebase/GCS audio redirects with:
-   ```bash
-   AUDIO_PROXY_FIREBASE_REDIRECT_ENABLED=true
-   ```
-   `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` is optional and only needed if you want Firebase Analytics.
-
-> [!IMPORTANT]
-> Native Windows backend installs are not currently reliable because `spleeter` and `madmom` still pull in conflicting or outdated dependencies. On Windows x86_64, prefer WSL2/Ubuntu for local development, or build the Docker images locally for `linux/amd64` instead of relying on the published Docker Hub tags.
-> If you are not testing Beat-Transformer, you can skip installing `spleeter` for now. It is only required by the current Beat-Transformer source-separation path. A newer compatible source-separation package will be considered in a future update.
-
-3. **Start Python backend** (Terminal 1)
-   ```bash
-   cd python_backend
-   python -m venv myenv
-   source myenv/bin/activate  # On Windows: myenv\Scripts\activate
-   pip install --upgrade pip setuptools wheel
-   pip install "Cython>=0.29.0" numpy==1.26.4
-   pip install git+https://github.com/CPJKU/madmom
-   pip install -r requirements.txt
-   python app.py
-   ```
-
-   If `pip install -r requirements.txt` fails with `ResolutionImpossible` errors involving `spleeter`, `librosa`, `httpx`, or `llvmlite`, use WSL2/Ubuntu or Docker for the backend rather than continuing with a native Windows install.
-
-   If you are not testing Beat-Transformer, you can skip `spleeter` during install:
-   ```bash
-   grep -v '^spleeter==' requirements.txt | grep -v '^typer==' > requirements_nospleeter.txt
-   pip install --no-cache-dir -r requirements_nospleeter.txt
-   ```
-   Beat-Transformer testing requires `spleeter`.
-
-   If you still need Beat-Transformer and want the more relaxed install chain used by the Dockerfile, install `spleeter` and `typer` after the main requirements with `--no-deps`:
-   ```bash
-   grep -v '^spleeter==' requirements.txt | grep -v '^typer==' > requirements_nospleeter.txt
-   pip install --no-cache-dir -r requirements_nospleeter.txt
-   pip install --no-cache-dir --no-deps typer==0.9.0
-   pip install --no-cache-dir --no-deps spleeter==2.3.2
-   ```
-
-4. **Start frontend** (Terminal 2)
-   ```bash
-   npm run dev
-   ```
-
-5. **Optional: start the SongFormer segmentation backend** (Terminal 3)
-   ```bash
-   cd SongFormer
-   docker build -t songformer-backend:local .
-   docker run --rm -p 8080:8080 songformer-backend:local
-   ```
-   The app will use this service for song segmentation. For the standalone service setup, Python workflow, and deployment notes, see [SongFormer/README.md](SongFormer/README.md).
-
-6. **Optional: start the experimental Sheet Sage melody backend** (Terminal 4)
-   ```bash
-   cd sheetsage
-   docker build --platform=linux/amd64 -t sheetsage-backend:local .
-   docker run --rm --platform=linux/amd64 -p 8082:8082 -v "$(pwd)/cache:/app/cache" sheetsage-backend:local
-   ```
-   For the standalone service image, Cloud Run deployment commands, and asset notes, see [sheetsage/README.md](sheetsage/README.md).
-
-7. **Open application**
-
-   Visit [http://localhost:3000](http://localhost:3000)
-
----
-
-## 🐳 Docker Setup
-
-Docker instructions live in [docker/README.md](docker/README.md), including Docker Desktop GUI steps, command-line setup, local image builds, and troubleshooting notes.
-
-> [!NOTE]
-> If you are installing ChordMini with Docker Desktop, start with the Docker guide.
-
----
-
-## 🗂️ Repository Layout Notes
-
-Some configuration files intentionally remain at the repository root because Next.js, npm, TypeScript, Jest, Tailwind/PostCSS, Vercel, Firebase, Docker, and GitHub Actions discover them there by default. Docker Compose and Firebase support files are grouped under [docker](docker) and [firebase](firebase), while obsolete duplicate config snapshots are kept in [config/legacy](config/legacy).
-
----
-
-## 📋 Detailed Setup Instructions
-
-### Firebase Setup
-
-1. **Create Firebase project**
-   - Visit [Firebase Console](https://console.firebase.google.com/)
-   - Click "Create a project"
-   - Follow the setup wizard
-
-2. **Enable Firestore Database**
-   - Go to "Firestore Database" in the sidebar
-   - Click "Create database"
-   - Choose "Start in test mode" for development
-
-3. **Get Firebase configuration**
-   - Go to Project Settings (gear icon)
-   - Scroll down to "Your apps"
-   - Click "Add app" → Web app
-   - Copy the configuration values to your `.env.local`
-
-4. **Create Firestore collections**
-
-   The app uses the following Firestore collections. They are created **automatically** on first write (no manual creation required):
-   - `transcriptions` — Beat and chord analysis results (docId: `${videoId}_${beatModel}_${chordModel}`)
-   - `translations` — Lyrics translation cache (docId: cacheKey based on content hash)
-   - `lyrics` — Music.ai transcription results (docId: `videoId`)
-   - `keyDetections` — Musical key analysis cache (docId: cacheKey)
-   - `segmentationJobs` — Async SongFormer segmentation jobs and persisted results (docId: `seg_<timestamp>_<uuid>`)
-   - `melody` — Experimental Sheet Sage melody transcription cache (docId: `videoId`)
-
-5. **Enable Anonymous Authentication**
-   - In Firebase Console: Authentication → Sign-in method → enable Anonymous
-
-6. **Configure Firebase Storage**
-   - Set environment variable: `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com`
-   - Note: Cloud Storage for Firebase can be used without a paid plan in some setups, but Firebase states that projects using the default `*.appspot.com` bucket must upgrade to the Blaze plan by **February 2, 2026** to keep access to that default bucket.
-   - Folder structure:
-     - `audio/` for audio files
-     - `video/` for optional video files
-   - Filename pattern requirement: filenames must include the 11-character YouTube video ID in brackets, e.g. `audio_[VIDEOID]_timestamp.mp3` (enforced by Storage rules)
-   - File size limits (enforced by Storage rules):
-     - Audio: up to 50MB
-     - Video: up to 100MB
-
-7. **Enable Firebase temp storage for large uploads** (optional, recommended for production)
-    - Add a temporary folder path in Firebase Storage: `temp/`.
-    - Deploy `storage.rules` that allow temporary upload and cleanup for `temp/*`.
-    - Keep the max upload size for temp files at 100MB.
-    - Set server-side cleanup config:
-       - `FIREBASE_SERVICE_ACCOUNT_KEY` (server-only JSON)
-       - `FIREBASE_TEMP_CLEANUP_CRON` (default `0 */12 * * *`)
-    - If upload fails with `storage/unauthorized` or HTTP 403, verify Anonymous Auth is enabled and rules are deployed to the same Firebase project used in `.env.local`.
-
-> [!IMPORTANT]
-> In local development, if Firebase Storage is unavailable, extracted YouTube audio falls back to the ignored local `temp/` folder. Those cached files are reused for the same YouTube `videoId` so yt-dlp does not need to run again, but the folder is not auto-cleaned and can grow large over time. Remove old files from `temp/` periodically if disk usage matters.
-
----
-
-### API Keys Setup
-
-#### Music.ai API (deprecated - MUSIC.ai no longer provide individual API key, only business plan)
-```bash
-# 1. Sign up at music.ai
-# 2. Get API key from dashboard
-# 3. Add to .env.local
-MUSIC_AI_API_KEY=your_key_here
-```
-
-#### Google Gemini API
-```bash
-# 1. Visit Google AI Studio
-# 2. Generate API key
-# 3. Add to .env.local
-GEMINI_API_KEY=your_key_here
-```
-
----
-
-## 🏗️ Backend Architecture
-
-### 🔧 Local Development Backend (Required)
-
-For local development, you **must** run the Python backend on `localhost:5001`:
-
-- **URL**: `http://localhost:5001`
-- **Port Note**: Uses port 5001 to avoid conflict with macOS AirPlay/AirTunes service on port 5000
-
-### ☁️ Production Backend (your VPS)
-
-Production deployments should set the backend URL privately via the `PYTHON_API_URL` environment variable.
-
-#### Prerequisites
-
-- **Python 3.10.x** (3.10.16 recommended)
-- **Virtual environment** (venv or conda)
-- **Git** for cloning dependencies
-- **System dependencies** (varies by OS)
-
-#### Quick Setup
-
-1. **Navigate to backend directory**
-   ```bash
-   cd python_backend
-   ```
-
-2. **Create virtual environment**
-   ```bash
-   python -m venv myenv
-
-   # Activate virtual environment
-   # On macOS/Linux:
-   source myenv/bin/activate
-
-   # On Windows:
-   myenv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install --upgrade pip setuptools wheel
-   pip install --no-cache-dir "Cython>=0.29.0" numpy==1.26.4
-   pip install --no-cache-dir git+https://github.com/CPJKU/madmom
-   pip install --no-cache-dir -r requirements.txt
-   ```
-
-   If you hit `ResolutionImpossible` errors involving `spleeter`, `librosa`, `httpx`, or `llvmlite`, the native install path is currently not considered reliable on Windows. Use WSL2/Ubuntu or Docker instead of continuing with a native Windows environment.
-
-   If you are not testing Beat-Transformer, you can install without `spleeter`:
-   ```bash
-   grep -v '^spleeter==' requirements.txt | grep -v '^typer==' > requirements_nospleeter.txt
-   pip install --no-cache-dir -r requirements_nospleeter.txt
-   ```
-   A newer compatible source-separation package will be considered in a future update.
-
-4. **Start local backend on port 5001**
-   ```bash
-   python app.py
-   ```
-
-   The backend will start on `http://localhost:5001` and should display:
-   ```
-   Starting Flask app on port 5001
-   App is ready to serve requests
-   Note: Using port 5001 to avoid conflict with macOS AirPlay/AirTunes on port 5000
-   ```
-
-5. **Verify backend is running**
-
-   Open a new terminal and test the backend:
-   ```bash
-   curl http://localhost:5001/health
-   # Should return: {"status": "healthy"}
-   ```
-
-6. **Start frontend development server**
-   ```bash
-   # In the main project directory (new terminal)
-   npm run dev
-   ```
-
-   The frontend will automatically connect to `http://localhost:5001` based on your `.env.local` configuration.
-
-#### Backend Features Available Locally
-
-- **Beat Detection**: Beat-Transformer and madmom models
-- **Chord Recognition**: Chord-CNN-LSTM, BTC-SL, BTC-PL models
-- **Audio Processing**: Support for MP3, WAV, FLAC formats
-
-#### Environment Variables for Local Backend
-
-Create a `.env` file in the `python_backend` directory:
-
-```bash
-# Optional: Redis URL for distributed rate limiting
-REDIS_URL=redis://localhost:6379
-
-# Optional: Genius API for lyrics
-GENIUS_ACCESS_TOKEN=your_genius_token
-
-# Flask configuration
-FLASK_MAX_CONTENT_LENGTH_MB=150
-CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
-
-#### Troubleshooting Local Backend
-
-**Backend connectivity issues:**
-```bash
-# 1. Verify backend is running
-curl http://localhost:5001/health
-# Expected: {"status": "healthy"}
-
-# 2. Check if port 5001 is in use
-lsof -i :5001  # macOS/Linux
-netstat -ano | findstr :5001  # Windows
-
-# 3. Verify environment configuration
-cat .env.local | grep PYTHON_API_URL
-# Expected: PYTHON_API_URL=http://localhost:5001
-
-# 4. Check for macOS AirTunes conflict (if using port 5000)
-curl -I http://localhost:5000/health
-# If you see "Server: AirTunes", that's the conflict we're avoiding
-```
-
-**Frontend connection errors:**
-```bash
-# Check browser console for errors like:
-# "Failed to fetch" or "Network Error"
-# This usually means the backend is not running on port 5001
-
-# Restart both frontend and backend:
-# Terminal 1 (Backend):
-cd python_backend && python app.py
-
-# Terminal 2 (Frontend):
-npm run dev
-```
-
-> [!IMPORTANT]
-> ```bash
-> # Ensure virtual environment is activated
-> source myenv/bin/activate  # macOS/Linux
-> myenv\Scripts\activate     # Windows
-> # Reinstall dependencies
-> pip install -r requirements.txt
-> ```
-
-<!-- ### Key Workflow Features
-
-#### **Dual Input Support**
-- **YouTube Integration**: URL/search → video selection → analysis
-- **Direct Upload**: Audio file → Firebase offload temp storage → immediate analysis
-
-#### **Environment-Aware Processing**
-- **Development**: localhost:5001 Python backend with yt-dlp (avoiding macOS AirTunes port conflict)
-- **Production**: browser yt-dlp extraction with server-side cache checks and finalization
-- **Rollback**: yt-mp3-go only when explicitly selected through audio strategy configuration
-
-#### **Caching after computation**
-- **Firebase Cache**: audio metadata, lyrics, transcriptions, key detections, segmentation results
-
-#### **ML Pipeline**
-- **Parallel Processing**: Beat detection + chord recognition + key analysis
-- **Multiple Models**: Beat-Transformer/madmom, Chord-CNN-LSTM/BTC variants
-- **AI Integration**: Gemini AI for key detection and enharmonic corrections -->
----
-
-### External APIs & Services, Packages
-We sincerely thank the following APIs and services for their support and contribution to the project.
-- **Madmom** - [github.com/CPJKU/madmom](https://github.com/CPJKU/madmom) - Beat detection and audio processing
-- **ISMIR2019-Large-Vocabulary-Chord-Recognition** - [github.com/music-x-lab/ISMIR2019-Large-Vocabulary-Chord-Recognition](https://github.com/music-x-lab/ISMIR2019-Large-Vocabulary-Chord-Recognition) - Chord-CNN-LSTM model for chord recognition
-- **Google Gemini API** - AI language model for roman numeral analysis, enharmonic corrections, and lyrics translation
-- **YouTube Search API** - [github.com/damonwonghv/youtube-search-api](https://github.com/damonwonghv/youtube-search-api) - YouTube search and video information
-- **yt-dlp** - [github.com/yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) - Browser production extraction and local development extraction
-- **yt-mp3-go** - [github.com/vukan322/yt-mp3-go](https://github.com/vukan322/yt-mp3-go) - Rollback-only audio extraction service when explicitly configured
-- **chord-db** - [github.com/tombatossals/chords-db](https://github.com/tombatossals/chords-db) - Comprehensive chord database for accurate guitar diagram generation
-- **LRClib** - [github.com/tranxuanthang/lrclib](https://github.com/tranxuanthang/lrclib) - Lyrics synchronization
-- **Sheetsage** -[github.com/chrisdonahue/sheetsage](https://github.com/chrisdonahue/sheetsage) - Experimental melody transcription model
-- **OpenSheetMusicDisplay** -[github.com/opensheetmusicdisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) - Sheet music rendering
-- **Music.ai SDK** - AI-powered music transcription 
-
-
-<!-- 
-## 🚀 Deployment Options
-
-### Docker Deployment (Recommended for Production)
-
-ChordMiniApp provides production-ready Docker images for easy deployment:
-
-```bash
-# Production deployment with Docker Compose
-curl -O https://raw.githubusercontent.com/ptnghia-j/ChordMiniApp/main/docker-compose.prod.yml
-docker compose -f docker-compose.prod.yml up -d
-```
-
-**Available on multiple registries:**
-- **Docker Hub**: `ptnghia/chordminiapp-frontend:latest`, `ptnghia/chordminiapp-backend:latest`
-- **GitHub Container Registry**: `ghcr.io/ptnghia-j/chordminiapp/frontend:latest`
-
-**Deployment targets:**
-- **Cloud platforms**: AWS, GCP, Azure, DigitalOcean
-- **Container orchestration**: Kubernetes, Docker Swarm
-- **Edge computing**: Raspberry Pi 4+ (ARM64 support)
-
-### Traditional Deployment
-
-For custom deployments, see the [Local Setup](#-quick-setup) section above. -->
+## Acknowledgements
+
+Thanks to the projects this app builds on:
+
+- **madmom** — [CPJKU/madmom](https://github.com/CPJKU/madmom) — beat detection and audio processing
+- **ISMIR2019-Large-Vocabulary-Chord-Recognition** — [music-x-lab](https://github.com/music-x-lab/ISMIR2019-Large-Vocabulary-Chord-Recognition) — the Chord-CNN-LSTM model
+- **ChordMini models** — [ptnghia-j/ChordMini](https://github.com/ptnghia-j/ChordMini) — BTC-SL and BTC-PL chord recognition models
+- **chords-db** — [tombatossals/chords-db](https://github.com/tombatossals/chords-db) — guitar diagram fingerings
+- **SheetSage** — [chrisdonahue/sheetsage](https://github.com/chrisdonahue/sheetsage) — experimental melody transcription
+- **OpenSheetMusicDisplay** — [opensheetmusicdisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) — sheet music rendering
+- **music21** — [cuthbertLab/music21](https://github.com/cuthbertLab/music21) — music theory primitives behind the local harmony engine
+- **Spleeter** — [deezer/spleeter](https://github.com/deezer/spleeter) — source separation used by the Beat-Transformer path
+- **FluidSynth** — [FluidSynth/fluidsynth](https://github.com/FluidSynth/fluidsynth) — MIDI synthesis
