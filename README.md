@@ -12,7 +12,7 @@ ChordMini is a music analysis web app: upload an audio file and it recognizes ch
 This repository is a **local-only fork** of [ptnghia-j/ChordMiniApp](https://github.com/ptnghia-j/ChordMiniApp). The analysis pipeline, the model weights and the interface are the original project's; everything that needed an account or a server has been removed.
 
 - **No account, no API key.** No Firebase, Gemini, Music.ai or YouTube credentials — there is nothing to sign up for and no key to paste into a config file.
-- **Your audio never leaves your machine.** The app performs no outbound requests of its own; the only network access happens once, while installing dependencies and model weights.
+- **Your audio never leaves your machine.** Nothing about your audio, filenames or results is uploaded. The only runtime network access is the instrument samples for chord playback and the in-app mini-games (static files from `gleitz.github.io` / `goldst.dev`, fetched only while a sound is being played; offline, those sounds stay silent and everything else works). Dependency and model downloads happen once, during installation.
 - **Lyrics are local too.** They come from lyric tags inside the audio file you upload, or from a `.lrc` / `.srt` / `.txt` / `.yaml` file you pick. No lyrics service is contacted and nothing is translated.
 
 ## Table of Contents
@@ -63,7 +63,7 @@ Lyrics appear on the **Lyrics & Chords** tab and, once loaded, are also laid int
 
 ### Offline AI prompt export
 
-The hosted AI assistant of the original app is replaced by an export: the analysis is packed into a structured prompt (three detail levels × three templates, plus guardrail instructions) that you copy into whichever LLM you already use. The app itself makes no request when generating it.
+The hosted AI assistant of the original app is replaced by an export: the analysis is packed into a structured prompt (three timeline-precision levels — section, measure, beat — × three templates, plus guardrail instructions) that you copy into whichever LLM you already use. The app itself makes no request when generating it.
 
 ### Optional melody transcription
 
@@ -87,10 +87,10 @@ Analyses of files you have already processed are served from the local cache, so
 | **Node.js** | 20.9 or newer, with npm 10 or newer |
 | **Python** | 3.9 – 3.11 (3.10 recommended); the launcher picks whichever is available |
 | **Git** | any recent version |
-| **Disk space** | plan for ~10 GB free: the Python environment is the bulk (several GB — PyTorch and TensorFlow), frontend packages ≈1 GB, model weights ≈190 MB, plus a few GB of frontend build cache |
+| **Disk space** | plan for ~13–15 GB free. Measured on a working install: Python environment ≈7.6 GB (the bulk — PyTorch and TensorFlow), frontend packages ≈1 GB, model weights ≈190 MB, production build cache ≈3.6 GB |
 | **GPU** | not required — everything runs on the CPU |
 
-Optional: **Git LFS** if you also want the SongFormer checkpoints (skipped by default), **Docker** for the melody service, **FluidSynth** for MIDI synthesis if chord playback is silent.
+Optional: **Git LFS** if you also want the SongFormer checkpoints (skipped by default), **Docker** for the melody service.
 
 ## Installation
 
@@ -110,7 +110,7 @@ The first run takes a few minutes and does all of the following:
 2. downloads the three model submodules (~190 MB in total),
 3. creates `python_backend/.venv` and installs the backend requirements, falling back to the `spleeter`-free set if the full install fails,
 4. installs the frontend packages (`npm ci`),
-5. builds the frontend, then starts the Flask backend on `5001` and the frontend on `3000`.
+5. starts the Flask backend on `5001` and waits for `/health`, then builds the frontend and serves it on `3000` (`--prod`), or starts the dev server instead.
 
 Runtime logs are written to `/tmp/chordmini-backend.log` and `/tmp/chordmini-frontend.log`. If a port is already taken the launcher stops instead of starting a second copy — it never kills processes it did not start.
 
@@ -175,8 +175,8 @@ Runtime logs are written to `/tmp/chordmini-backend.log` and `/tmp/chordmini-fro
 
 ## Usage
 
-1. Open <http://127.0.0.1:3000> in your browser (use `127.0.0.1`, not `localhost` — the app builds its absolute links on `127.0.0.1`).
-2. Pick an audio file with **Choose Audio File** (MP3, WAV, FLAC, M4A, OPUS, OGG, AIFF, WebM). Optionally pick a `.lrc` / `.srt` / `.txt` / `.yaml` file with **Choose Lyrics File**, or rely on lyric tags already embedded in the audio.
+1. Open <http://127.0.0.1:3000> in your browser (stay on `127.0.0.1`: the example config uses it, and in development mode the dev server only trusts that host — see Troubleshooting).
+2. Pick an audio file with **Choose Audio File** — the picker accepts `audio/*`; the backend store takes MP3, WAV, FLAC, M4A, OPUS, OGG, AIFF/AIF and WebM, normalizing unknown extensions to `.mp3`. Optionally pick a `.lrc` / `.srt` / `.txt` / `.yaml` file with **Choose Lyrics File**, or rely on lyric tags already embedded in the audio.
 3. Press **Analyze Audio** and wait for the analysis to finish. Results from a file you have analyzed before come back instantly from the local cache.
 4. Explore the result tabs:
 
@@ -204,6 +204,7 @@ Sheet Sage is not bundled; build and run it as its own service:
 
 ```bash
 cd sheetsage
+mkdir -p cache          # the image copies cache/ into the build, and cache/ is gitignored, so create it first
 docker build --platform=linux/amd64 -t sheetsage-backend:local .
 docker run --rm --platform=linux/amd64 -p 8082:8082 -v "$(pwd)/cache:/app/cache" sheetsage-backend:local
 ```
@@ -212,7 +213,7 @@ Then point the frontend at it with `SHEETSAGE_API_URL=http://localhost:8082` in 
 
 ## Configuration
 
-**Frontend — `.env.local`** (copied from `.env.example`, correct as-is):
+**Frontend — `.env.local`** (created from `.env.example`; those two values are all it needs. The optional lines below are not in the example — uncomment or add them by hand):
 
 ```bash
 PYTHON_API_URL=http://127.0.0.1:5001        # Flask backend, used by the app's own server routes
@@ -232,12 +233,12 @@ NEXT_PUBLIC_BASE_URL=http://127.0.0.1:3000  # origin used for the app's absolute
 | `CHORDMINI_CACHE_TTL_DAYS` | `30` | retention for analyses and audio |
 | `CHORDMINI_KV_TTL_DAYS` | `0` | key/value cache lifetime; `0` means never expire |
 | `FLASK_MAX_CONTENT_LENGTH_MB` | `150` | largest upload the backend accepts |
-| `CORS_ORIGINS` | `http://127.0.0.1:3000,http://localhost:3000` | origins allowed to call the backend |
+| `CORS_ORIGINS` | six local, docker and vercel origins including `http://127.0.0.1:3000` and `http://localhost:3000` | extra origins to allow; **appended** to the built-in list, not a replacement |
 | `PORT` | `5001` | backend port |
 
 ## Local data, cache & privacy
 
-Everything the app produces lives in a single directory inside the backend:
+Analysis data lives in a single directory inside the backend (the launcher also ensures `public/audio` and `python_backend/templates` exist; runtime logs go to `/tmp`, and UI preferences live in browser storage):
 
 ```
 python_backend/data/
@@ -281,7 +282,7 @@ ChordMiniApp-Local/
 ├── src/                      # Next.js frontend and its local API routes
 ├── python_backend/           # Flask API, models, local cache
 │   ├── app.py
-│   ├── blueprints/           # beats, chords, harmony, cache, health, docs
+│   ├── blueprints/           # beats, chords, harmony, cache, health, docs, songformer, debug (+ empty youtube/audio shells kept for compatibility)
 │   ├── models/               # Beat-Transformer, Chord-CNN-LSTM, ChordMini (submodules)
 │   ├── services/
 │   ├── data/                 # created on first run (SQLite cache + audio store)
@@ -300,13 +301,13 @@ ChordMiniApp-Local/
 | Symptom | What to do |
 | --- | --- |
 | `port 5001 is already in use` (or 3000) | Something else is listening there. Stop it, or run `BACKEND_PORT=5002 FRONTEND_PORT=3001 ./start.sh` and update `.env.local` to match. |
-| Blank or unstyled page | Open `http://127.0.0.1:3000`, not `localhost:3000`. |
+| Blank or unstyled page (development mode) | `next dev` only trusts `127.0.0.1` (`allowedDevOrigins` in `next.config.js`), so open `http://127.0.0.1:3000`; the production build is not affected. |
 | Development mode feels slow | That is `next dev`: every page compiles on first visit. Use `./start.sh --prod`. |
 | The build is killed or takes very long | It needs roughly 4 GB of free memory; `--prod` already sets `NODE_OPTIONS=--max-old-space-size=4096`. Close other heavy applications. |
 | `Failed to fetch` / `Network Error` in the browser | The backend is not running. `curl http://127.0.0.1:5001/health` should answer `{"status": "healthy"}`. |
 | The melody toggle is greyed out | Expected without the Sheet Sage service — see [Optional: melody transcription](#optional-melody-transcription). |
 | A Python import fails | Activate the environment (`cd python_backend && source .venv/bin/activate`) and reinstall `-r requirements.txt`. |
-| Chord playback is silent | Install FluidSynth for MIDI synthesis: `sudo apt install fluidsynth`, `brew install fluidsynth`, or `choco install fluidsynth`. |
+| Chord playback or mini-game sounds are silent | Both play instrument samples fetched from `gleitz.github.io` / `goldst.dev`; on a machine with no internet access those sounds stay silent. Everything else keeps working. |
 | Git complained about a submodule while cloning | The legacy `beat_transformer_minimal` entry; safe to ignore. The three model submodules are what count. |
 
 ## Differences from upstream
@@ -358,4 +359,4 @@ Thanks to the projects this app builds on:
 - **OpenSheetMusicDisplay** — [opensheetmusicdisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) — sheet music rendering
 - **music21** — [cuthbertLab/music21](https://github.com/cuthbertLab/music21) — music theory primitives behind the local harmony engine
 - **Spleeter** — [deezer/spleeter](https://github.com/deezer/spleeter) — source separation used by the Beat-Transformer path
-- **FluidSynth** — [FluidSynth/fluidsynth](https://github.com/FluidSynth/fluidsynth) — MIDI synthesis
+- **smplr** — [danigb/smplr](https://github.com/danigb/smplr) — web-audio soundfont playback for the chord preview

@@ -36,3 +36,17 @@ export const LOCAL_LYRICS_AVAILABLE = true;
 /** Shown wherever lyrics are advertised, so the copy matches the local-only build. */
 export const LOCAL_LYRICS_HINT =
   'Lyrics are local-only here: upload a lyric file (.lrc, .srt, .txt) next to your audio, or use the lyric tags already embedded in your audio file.';
+
+/** Lyrics translation would need Gemini, which this build does not include. */
+export const LYRICS_TRANSLATION_AVAILABLE = false;
+
+/**
+ * YouTube playback wiring.
+ *
+ * This build has no YouTube feature, but the legacy `/analyze/<id>` route is
+ * still reachable by direct URL, and it used to wire `react-player` YouTube
+ * URLs as soon as an id was present — an outbound request on a build that
+ * advertises itself as offline. Every writer and the render sites now check
+ * this flag, so no player is ever mounted.
+ */
+export const YOUTUBE_PLAYBACK_AVAILABLE = false;

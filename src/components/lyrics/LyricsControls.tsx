@@ -2,6 +2,7 @@ import React from 'react';
 import { Button, Popover, PopoverTrigger, PopoverContent, Slider } from '@heroui/react';
 import { HiGlobeAlt } from 'react-icons/hi';
 import { getAppSliderClassNames } from '@/components/ui/appSliderStyles';
+import { LYRICS_TRANSLATION_AVAILABLE } from '@/utils/localCapabilities';
 
 // Types
 interface TranslatedLyrics {
@@ -77,7 +78,10 @@ export const LyricsControls: React.FC<LyricsControlsProps> = ({
           <span className={`text-xs tabular-nums ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>{fontSize}px</span>
         </div>
 
-        {/* Translation button – HeroUI Popover */}
+        {/* Translation button – HeroUI Popover. Compiled out of the local-only
+            build: translation needs Gemini and the language list is empty, so
+            the control used to sit there doing nothing when clicked. */}
+        {LYRICS_TRANSLATION_AVAILABLE && (
         <Popover
           isOpen={isLanguageMenuOpen && !isTranslating}
           onOpenChange={setIsLanguageMenuOpen}
@@ -137,6 +141,7 @@ export const LyricsControls: React.FC<LyricsControlsProps> = ({
             </div>
           </PopoverContent>
         </Popover>
+        )}
       </div>
 
       {/* Translation error */}

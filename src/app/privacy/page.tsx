@@ -68,8 +68,8 @@ const PrivacyPage: React.FC = () => {
             <ul className="space-y-2">
               <li>• <strong>Local analysis service</strong> — requests go only to the Python backend
                 on <code>127.0.0.1:5001</code>.</li>
-              <li>• <strong>Instrument samples (playback only)</strong> — if you turn on chord
-                playback, the browser fetches soundfont files from{' '}
+              <li>• <strong>Instrument samples (playback only)</strong> — whenever a sound is played
+                (chord playback, the in-app mini-games), the browser fetches soundfont files from{' '}
                 <code>gleitz.github.io</code> / <code>goldst.dev</code>. Only those static assets are
                 requested; no audio, filename or analysis result is sent.</li>
               <li>• <strong>Lyrics lookup — removed.</strong> The LRCLIB integration was taken out of

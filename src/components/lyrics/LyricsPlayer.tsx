@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import ReactPlayer from 'react-player';
+import { YOUTUBE_PLAYBACK_AVAILABLE } from '@/utils/localCapabilities';
 import { LyricsData, LyricLine } from '@/types/musicAiTypes';
 import EnhancedLyricsDisplay from './EnhancedLyricsDisplay';
 
@@ -80,6 +81,8 @@ const LyricsPlayer: React.FC<LyricsPlayerProps> = ({
   return (
     <div className="flex flex-col lg:flex-row gap-4">
       <div className="w-full lg:w-1/2">
+        {/* Local-only build: the YouTube embed is never mounted. */}
+        {YOUTUBE_PLAYBACK_AVAILABLE && (
         <div className="relative pt-[56.25%]">
           <ReactPlayer
             ref={playerRef}
@@ -97,6 +100,7 @@ const LyricsPlayer: React.FC<LyricsPlayerProps> = ({
             controls={true}
           />
         </div>
+        )}
 
         <div className="mt-4 bg-gray-100 p-4 rounded-lg">
           <div className="flex items-center mb-2">

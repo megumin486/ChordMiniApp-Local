@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { YOUTUBE_PLAYBACK_AVAILABLE } from '@/utils/localCapabilities';
 
 /**
  * Custom hook to set YouTube URLs immediately for fast frame loading
@@ -10,6 +11,12 @@ export const useYouTubeSetup = (
   setAudioProcessingState: React.Dispatch<React.SetStateAction<any>>
 ) => {
   useEffect(() => {
+    // Local-only build: never build YouTube URLs. Without them no player is
+    // mounted, so opening a legacy /analyze/<id> URL cannot reach YouTube.
+    if (!YOUTUBE_PLAYBACK_AVAILABLE) {
+      return;
+    }
+
     if (videoId) {
       // Set YouTube URLs immediately without waiting for API calls
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

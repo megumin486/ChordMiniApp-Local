@@ -9,6 +9,7 @@ import { AnalysisResult } from '@/services/chord-analysis/chordRecognitionServic
 import { useChordPlayback } from '@/hooks/chord-playback/useChordPlayback';
 import { useShowRomanNumerals, useToggleRomanNumerals } from '@/stores/uiStore';
 import type { SegmentationResult } from '@/types/chatbotTypes';
+import { YOUTUBE_PLAYBACK_AVAILABLE } from '@/utils/localCapabilities';
 
 // Dynamic imports for heavy components
 const MetronomeControls = dynamic(() => import('@/components/chord-playback/MetronomeControls'), {
@@ -189,8 +190,10 @@ const FloatingVideoDock: React.FC<FloatingVideoDockProps> = ({
     timeSignature,
   });
 
-  // Don't render if no video URLs are available
-  if (!youtubeEmbedUrl && !videoUrl) {
+  // Don't render if no video URLs are available. The local-only build never
+  // wires YouTube URLs at all (see localCapabilities), so this early return is
+  // what keeps the dock — and its react-player YouTube embed — from mounting.
+  if (!YOUTUBE_PLAYBACK_AVAILABLE || (!youtubeEmbedUrl && !videoUrl)) {
     return null;
   }
 

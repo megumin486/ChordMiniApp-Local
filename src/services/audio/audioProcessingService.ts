@@ -7,6 +7,7 @@ import {
   updateTranscriptionEnrichment,
 } from '@/services/storage/localAnalysisStore';
 import { normalizeThumbnailUrl } from '@/utils/youtubeMetadata';
+import { YOUTUBE_PLAYBACK_AVAILABLE } from '@/utils/localCapabilities';
 
 // Define error types for better type safety
 export interface ErrorWithSuggestion extends Error {
@@ -335,6 +336,11 @@ export class AudioProcessingService {
     state: AudioProcessingState,
     videoId: string
   ): AudioProcessingState {
+    if (!YOUTUBE_PLAYBACK_AVAILABLE) {
+      // Local-only build: no state may carry a YouTube URL.
+      return state;
+    }
+
     return {
       ...state,
       youtubeEmbedUrl: `https://www.youtube.com/embed/${videoId}`,

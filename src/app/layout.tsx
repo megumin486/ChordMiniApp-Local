@@ -208,10 +208,10 @@ export default function RootLayout({
 
         {/* Removed global image preloads: let Next/Image with priority handle above-the-fold assets on the pages that use them to avoid preload-not-used warnings. */}
 
-        {/* DNS prefetch for external services */}
-        <link rel="dns-prefetch" href="//youtube.com" />
-        <link rel="dns-prefetch" href="//googleapis.com" />
-        <link rel="dns-prefetch" href="//vercel.app" />
+        {/* DNS prefetch hints for the third-party services the hosted app used
+            were removed along with them: this build talks to nothing but
+            127.0.0.1, so a hint here would be a DNS lookup for a service the
+            app never calls. */}
 
         {/* Critical CSS for above-the-fold content */}
         <CriticalCSS />
