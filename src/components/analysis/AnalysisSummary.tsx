@@ -9,7 +9,7 @@ import {
   fetchSongMetadata,
 } from '@/services/musicbrainz/musicbrainzService';
 import { getLightweightChordPlaybackService } from '@/services/chord-playback/lightweightChordPlaybackService';
-import type { RomanNumeralData, SequenceCorrectionsData } from '@/services/firebase/firestoreService';
+import type { RomanNumeralData, SequenceCorrectionsData } from '@/services/storage/localAnalysisStore';
 import {
   computeAccidentalPreference,
   getEnharmonicEquivalent,

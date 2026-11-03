@@ -1,136 +1,77 @@
-const mockUploadAudioBlobWithRetry = jest.fn();
-const mockUploadAudioFromUrlWithRetry = jest.fn();
+/**
+ * `parallelPipelineService` is now a pure in-process audio buffer (the Firebase
+ * upload pipeline was removed in Phase 4). These tests cover cache reads, TTL
+ * expiry and cleanup semantics.
+ */
 
-jest.mock('@/services/firebase/streamingFirebaseUpload', () => ({
-  uploadAudioBlobWithRetry: (...args: unknown[]) => mockUploadAudioBlobWithRetry(...args),
-  uploadAudioFromUrlWithRetry: (...args: unknown[]) => mockUploadAudioFromUrlWithRetry(...args),
-}));
+type Service = typeof import('@/services/api/parallelPipelineService');
 
-describe('parallelPipelineService', () => {
+const load = async (): Promise<Service> => {
+  const service = await import('@/services/api/parallelPipelineService');
+  service.cleanupBackgroundResults();
+  return service;
+};
+
+describe('parallelPipelineService (local in-process cache)', () => {
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
-    (global.fetch as jest.Mock).mockReset();
-    jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
-    jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('downloads the complete file, caches it, and stores background blob-upload results', async () => {
-    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1000);
+  it('returns a cached blob by videoId together with its TTL metadata', async () => {
+    const service = await load();
     const blob = new Blob(['audio-bytes'], { type: 'audio/mp4' });
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      blob: async () => blob,
-    });
-    mockUploadAudioBlobWithRetry.mockResolvedValue({
-      success: true,
-      audioUrl: 'https://firebase.example/audio.mp4',
-    });
 
-    const service = await import('@/services/api/parallelPipelineService');
-    const result = await service.startParallelPipeline({
-      videoId: 'video-1',
-      title: 'Song',
-      directUrl: 'https://cdn.example/audio.mp4',
-    });
+    service.cacheAudioFile('video-1', blob);
 
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(result).toEqual({
-      success: true,
-      directUrl: 'https://cdn.example/audio.mp4',
-      firebaseUrl: undefined,
-      uploadTime: undefined,
-      hasCompleteFile: true,
-    });
     expect(service.getCachedAudioFile('video-1')).toBe(blob);
-    expect(service.getCachedAudioMeta('video-1')).toEqual({
-      present: true,
-      ageMs: 0,
-      size: blob.size,
-      timestamp: 1000,
-      expiresInMs: 600000,
-    });
-    expect(service.getFirebaseUrlIfReady('video-1')).toBe('https://firebase.example/audio.mp4');
-    nowSpy.mockRestore();
+    const meta = service.getCachedAudioMeta('video-1');
+    expect(meta).toEqual(
+      expect.objectContaining({ present: true, size: blob.size }),
+    );
+    // Remaining TTL is `AUDIO_CACHE_TTL_MS - ageMs`, so it is always just under 10 minutes
+    expect(meta.expiresInMs).toBeGreaterThan(590000);
+    expect(meta.expiresInMs).toBeLessThanOrEqual(600000);
   });
 
-  it('falls back to direct-url upload when complete download fails', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: false,
-      status: 502,
-      statusText: 'Bad Gateway',
-    });
-    mockUploadAudioFromUrlWithRetry.mockResolvedValue({
-      success: true,
-      audioUrl: 'https://firebase.example/fallback.mp4',
-    });
+  it('returns null with present:false on a miss', async () => {
+    const service = await load();
 
-    const service = await import('@/services/api/parallelPipelineService');
-    const result = await service.startParallelPipeline({
-      videoId: 'video-2',
-      title: 'Song',
-      directUrl: 'https://cdn.example/fallback.mp4',
-    });
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(result).toEqual({
-      success: true,
-      directUrl: 'https://cdn.example/fallback.mp4',
-      firebaseUrl: undefined,
-      uploadTime: undefined,
-      hasCompleteFile: false,
-    });
-    expect(mockUploadAudioFromUrlWithRetry).toHaveBeenCalledWith('https://cdn.example/fallback.mp4', {
-      videoId: 'video-2',
-      title: 'Song',
-      contentType: 'audio/mp4',
-    });
-    expect(service.getCachedAudioFile('video-2')).toBeNull();
-    expect(service.getFirebaseUrlIfReady('video-2')).toBe('https://firebase.example/fallback.mp4');
+    expect(service.getCachedAudioFile('missing')).toBeNull();
+    expect(service.getCachedAudioMeta('missing')).toEqual(
+      expect.objectContaining({ present: false }),
+    );
   });
 
-  it('expires cached audio after ten minutes and rejects Firebase storage URLs for direct backend use', async () => {
-    const nowSpy = jest.spyOn(Date, 'now');
-    nowSpy.mockReturnValue(2000);
+  it('treats entries past the TTL as expired and drops them', async () => {
+    const service = await load();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    service.cacheAudioFile('video-1', new Blob(['x']));
 
-    const blob = new Blob(['audio-bytes'], { type: 'audio/mp4' });
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      blob: async () => blob,
-    });
-    mockUploadAudioBlobWithRetry.mockResolvedValue({
-      success: true,
-      audioUrl: 'https://firebase.example/audio.mp4',
-    });
+    nowSpy.mockReturnValue(1_000 + 10 * 60 * 1000 + 1);
 
-    const service = await import('@/services/api/parallelPipelineService');
-    await service.startParallelPipeline({
-      videoId: 'video-3',
-      title: 'Song',
-      directUrl: 'https://cdn.example/audio.mp4',
-    });
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(service.getCachedAudioFile('video-1')).toBeNull();
+    expect(service.getCachedAudioMeta('video-1')).toEqual(
+      expect.objectContaining({ present: false }),
+    );
+  });
 
-    nowSpy.mockReturnValue(2000 + 10 * 60 * 1000 + 1);
+  it('cleanupBackgroundResults drops only expired entries and keeps fresh ones', async () => {
+    const service = await load();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    service.cacheAudioFile('video-1', new Blob(['x']));
 
-    expect(service.getCachedAudioFile('video-3')).toBeNull();
-    expect(service.getCachedAudioMeta('video-3')).toEqual({ present: false });
-    expect(service.canUseDirectUrlWithBackend('https://files.example/audio.mp4')).toBe(true);
-    expect(service.canUseDirectUrlWithBackend('https://firebasestorage.googleapis.com/file')).toBe(false);
-    expect(service.canUseDirectUrlWithBackend('not-a-valid-url')).toBe(false);
-    expect(service.getBackendEndpointForDirectUrl('beats')).toBe('/api/detect-beats');
-    expect(service.getBackendEndpointForDirectUrl('chords')).toBe('/api/recognize-chords');
+    nowSpy.mockReturnValue(1_000 + 60 * 60 * 1000); // one hour later
+    service.cacheAudioFile('video-2', new Blob(['y']));
 
-    nowSpy.mockRestore();
+    service.cleanupBackgroundResults();
+
+    expect(service.getCachedAudioFile('video-1')).toBeNull();
+    expect(service.getCachedAudioFile('video-2')).not.toBeNull();
   });
 });

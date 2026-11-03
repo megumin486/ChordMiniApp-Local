@@ -8,14 +8,16 @@ interface NoLyricsMessageProps {
 
 /**
  * NoLyricsMessage component - extracted from LeadSheetDisplay
- * Handles error state rendering when no lyrics are available
+ *
+ * Shows the empty state when no synced lyric sheet is available. The local-only
+ * build ships no lyrics transcription service, so the copy explains what the
+ * user can still do instead of pointing at an API key or workflow dashboard.
  */
 export const NoLyricsMessage: React.FC<NoLyricsMessageProps> = ({
   error,
   textColors
 }) => {
   const errorMessage = error || 'No lyrics available for this song';
-  const isNoLyricsDetected = errorMessage.includes('No lyrics detected');
 
   return (
     <div className="lead-sheet-container p-4 rounded-lg shadow" style={{ backgroundColor: textColors.background }}>
@@ -25,68 +27,17 @@ export const NoLyricsMessage: React.FC<NoLyricsMessageProps> = ({
         <div className="mt-6 text-sm opacity-75">
           This may be due to:
           <ul className="list-disc list-inside mt-2 text-left max-w-md mx-auto">
-            {isNoLyricsDetected && (
-              <>
-                <li className="font-medium">No lyrics detected in the audio</li>
-                <li>The song being instrumental</li>
-                <li>Audio quality issues</li>
-              </>
-            )}
-            {!isNoLyricsDetected && (
-              <>
-                <li>No lyrics detected in the audio</li>
-                <li>Music.ai API service unavailable or configuration issues</li>
-                <li>The song being instrumental</li>
-                <li>Audio quality issues</li>
-              </>
-            )}
-            {errorMessage.includes('API') && (
-              <li className="text-red-500">Music.ai API connection issue - please check the console logs</li>
-            )}
-            {errorMessage.includes('transcribe') && (
-              <li className="text-red-500">Transcription service error - please try again later</li>
-            )}
-            {errorMessage.includes('connection') && (
-              <li className="text-red-500">Network connection issue - please check your internet connection</li>
-            )}
-            {errorMessage.includes('timeout') && (
-              <li className="text-red-500">Request timeout - the Music.ai API is taking too long to respond</li>
-            )}
-            {errorMessage.includes('workflow') && (
-              <li className="text-red-500">Workflow not found - the Music.ai API doesn&apos;t have the required workflow</li>
-            )}
-            {errorMessage.includes('No workflows available') && (
-              <li className="text-red-500">No workflows available - please set up workflows in your Music.ai account</li>
-            )}
-            {errorMessage.includes('not configured') && (
-              <li className="text-red-500">The selected workflow is not configured for lyrics transcription - please set up a proper workflow in your Music.ai account</li>
-            )}
-            {errorMessage.includes('Job failed') && (
-              <li className="text-red-500">The Music.ai API job failed - please check your workflow configuration</li>
-            )}
-            {errorMessage.includes('Unknown error') && (
-              <li className="text-red-500">The Music.ai API returned an unknown error - please check your workflow configuration</li>
-            )}
+            <li>This build does not include a lyrics transcription service</li>
+            <li>The song having no vocals (instrumental tracks never have lyrics)</li>
+            <li>No synced lyric sheet being available locally for this track</li>
           </ul>
         </div>
         <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-blue-700 font-medium">Troubleshooting:</p>
+          <p className="text-blue-700 font-medium">What you can still do:</p>
           <ul className="list-disc list-inside mt-2 text-left max-w-md mx-auto text-blue-600">
-            {!isNoLyricsDetected ? (
-              <>
-                <li>Check that your Music.ai API key is valid and properly configured</li>
-                <li>Ensure you have created appropriate workflows in your Music.ai account</li>
-                <li>Try with a different audio file or YouTube video</li>
-                <li>Check the browser console for detailed error messages</li>
-              </>
-            ) : (
-              <>
-                <li>Try with a different song that has vocals</li>
-                <li>This may be an instrumental track without lyrics</li>
-                <li>The audio quality might be too low for lyrics detection</li>
-                <li>The vocals might be too quiet or mixed in a way that makes lyrics detection difficult</li>
-              </>
-            )}
+            <li>Keep using the chord grid, Roman numerals and beat map</li>
+            <li>Try another audio file that ships with a synced lyric sheet</li>
+            <li>Check the browser console for detailed error messages</li>
           </ul>
         </div>
       </div>

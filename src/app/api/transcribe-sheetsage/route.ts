@@ -2,21 +2,40 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSheetSageApiUrl } from '@/config/serverBackend';
 import { createSafeTimeoutSignal } from '@/utils/environmentUtils';
 import type { SheetSageResult } from '@/types/sheetSage';
-import { setDocumentWithAdminAccess } from '@/services/firebase/firestoreAdminService';
-import { validateOffloadUrl } from '@/utils/offloadValidation';
-import { deleteOffloadUrl } from '@/services/storage/offloadCleanupService';
+import { cacheKvSet } from '@/services/cache/localCacheClient';
 import { verifyAppCheckRequest } from '@/utils/serverAppCheck';
 
+/**
+ * Browser-facing proxy to the standalone Sheet Sage melody backend.
+ *
+ * Sheet Sage is a purely local service (upstream ships it as a Docker image and
+ * this fork expects it at `getSheetSageApiUrl()`, default
+ * `http://localhost:8082`). The route shape is the upstream one; the two
+ * integrations that no longer exist here were replaced:
+ *
+ *  - Firebase App Check: `verifyAppCheckRequest` is an offline stub that always
+ *    allows the request, so the guard stays in place without a network call.
+ *  - Firestore melody cache: results are written to the local SQLite key/value
+ *    store (`kv_cache`) through `cacheKvSet`, read back by `/api/melody-cache`.
+ *
+ * The upstream offload/blob remote-audio branch is gone: this build has no
+ * offload pipeline and the client always uploads a `file` field.
+ */
+
 export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const DEFAULT_SHEETSAGE_BACKEND_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SHEETSAGE_HEALTH_TIMEOUT_MS = 20 * 1000;
+const MELODY_CACHE_KEY_PREFIX = 'melody:';
+
 const parsedSheetSageBackendTimeoutMs = Number(
   process.env.SHEETSAGE_BACKEND_TIMEOUT_MS || DEFAULT_SHEETSAGE_BACKEND_TIMEOUT_MS,
 );
 const SHEETSAGE_BACKEND_TIMEOUT_MS = (
   Number.isFinite(parsedSheetSageBackendTimeoutMs)
-    && parsedSheetSageBackendTimeoutMs > 0
+  && parsedSheetSageBackendTimeoutMs > 0
 )
   ? Math.floor(parsedSheetSageBackendTimeoutMs)
   : DEFAULT_SHEETSAGE_BACKEND_TIMEOUT_MS;
@@ -29,18 +48,6 @@ function buildBackendUnavailableMessage(message: string): string {
   return message;
 }
 
-function isValidVideoId(videoId: string): boolean {
-  return /^[a-zA-Z0-9_-]{11}$/.test(videoId);
-}
-
-function shouldDeleteOffloadAfterProcessing(formData: FormData): boolean {
-  const raw = formData.get('delete_offload') ?? formData.get('delete_blob');
-  if (typeof raw !== 'string') return true;
-
-  const normalized = raw.trim().toLowerCase();
-  return !(normalized === '0' || normalized === 'false' || normalized === 'no');
-}
-
 function readStringField(formData: FormData, ...names: string[]): string | null {
   for (const name of names) {
     const value = formData.get(name);
@@ -50,37 +57,6 @@ function readStringField(formData: FormData, ...names: string[]): string | null 
   }
 
   return null;
-}
-
-type SheetSageAudioSource = {
-  file?: File;
-  audioUrl?: string;
-  shouldDeleteRemoteUrl?: boolean;
-};
-
-async function resolveAudioSourceFromFormData(formData: FormData): Promise<SheetSageAudioSource> {
-  const file = formData.get('file');
-  if (file instanceof File) {
-    return { file };
-  }
-
-  const remoteUrlEntry = readStringField(formData, 'audioUrl', 'firebase_url', 'offload_url', 'blob_url');
-  if (!remoteUrlEntry) {
-    throw new Error('No audio file provided');
-  }
-
-  const audioUrl = validateOffloadUrl(remoteUrlEntry);
-  const shouldDeleteOffload = shouldDeleteOffloadAfterProcessing(formData);
-
-  return {
-    audioUrl,
-    shouldDeleteRemoteUrl: shouldDeleteOffload && (
-      formData.has('offload_url')
-      || formData.has('blob_url')
-      || formData.has('delete_offload')
-      || formData.has('delete_blob')
-    ),
-  };
 }
 
 function getJsonString(payload: unknown, ...names: string[]): string | null {
@@ -99,29 +75,12 @@ function getJsonString(payload: unknown, ...names: string[]): string | null {
   return null;
 }
 
-function resolveAudioSourceFromJson(payload: unknown): SheetSageAudioSource {
-  const remoteUrlEntry = getJsonString(payload, 'audioUrl', 'firebase_url', 'offload_url', 'blob_url');
-  if (!remoteUrlEntry) {
-    throw new Error('No audio file provided');
-  }
-
-  return {
-    audioUrl: validateOffloadUrl(remoteUrlEntry),
-    shouldDeleteRemoteUrl: false,
-  };
-}
-
-async function cleanupRemoteAudioSource(audioSource: SheetSageAudioSource): Promise<void> {
-  if (!audioSource.audioUrl || !audioSource.shouldDeleteRemoteUrl) {
-    return;
-  }
-
-  try {
-    const deletion = await deleteOffloadUrl(audioSource.audioUrl);
-    console.log(`🗑️ [SheetSage] Offload file deleted after backend processing (provider=${deletion.provider}, alreadyDeleted=${deletion.alreadyDeleted === true}): ${audioSource.audioUrl.substring(0, 80)}...`);
-  } catch (deleteError) {
-    console.warn('⚠️ [SheetSage] Non-critical: failed to delete offload file after backend processing:', deleteError);
-  }
+/**
+ * Cache keys accept the YouTube id used upstream and the local audio id
+ * (sha256 content hash) this fork derives from an uploaded file.
+ */
+function isValidVideoId(videoId: string): boolean {
+  return /^[a-zA-Z0-9_-]{11}$/.test(videoId) || /^[a-f0-9]{64}$/.test(videoId);
 }
 
 function normalizeMelodyResultForCache(videoId: string, result: SheetSageResult) {
@@ -176,7 +135,7 @@ export async function POST(request: NextRequest) {
   const backendUrl = getSheetSageApiUrl();
 
   try {
-    // Verify App Check token
+    // App Check guard kept for structural parity; the stub always allows.
     const appCheck = await verifyAppCheckRequest(request);
     if (!appCheck.ok) {
       return NextResponse.json({ success: false, error: appCheck.error }, { status: appCheck.status || 403 });
@@ -188,47 +147,27 @@ export async function POST(request: NextRequest) {
     const formData = isJsonRequest ? null : await request.formData();
     const videoIdField = isJsonRequest
       ? getJsonString(requestPayload, 'videoId')
-      : formData?.get('videoId');
+      : readStringField(formData as FormData, 'videoId');
     const videoId = typeof videoIdField === 'string' ? videoIdField.trim() : '';
 
-    let audioSource: SheetSageAudioSource;
-    try {
-      audioSource = isJsonRequest
-        ? resolveAudioSourceFromJson(requestPayload)
-        : await resolveAudioSourceFromFormData(formData as FormData);
-    } catch (resolveError) {
+    const uploadedFile = formData?.get('file');
+    if (!(uploadedFile instanceof File)) {
       return NextResponse.json(
-        {
-          success: false,
-          error: resolveError instanceof Error ? resolveError.message : 'No audio file provided',
-        },
+        { success: false, error: 'No audio file provided' },
         { status: 400 },
       );
     }
 
-    const backendRequest = audioSource.audioUrl
-      ? {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioUrl: audioSource.audioUrl }),
-        signal: createSafeTimeoutSignal(SHEETSAGE_BACKEND_TIMEOUT_MS),
-      }
-      : (() => {
-        const backendFormData = new FormData();
-        backendFormData.append('file', audioSource.file as File, audioSource.file?.name || 'audio-upload');
-        return {
-          method: 'POST',
-          body: backendFormData,
-          signal: createSafeTimeoutSignal(SHEETSAGE_BACKEND_TIMEOUT_MS),
-        };
-      })();
+    const backendFormData = new FormData();
+    backendFormData.append('file', uploadedFile, uploadedFile.name || 'audio-upload');
 
     const response = await fetch(`${backendUrl}/transcribe`, {
-      ...backendRequest,
+      method: 'POST',
+      body: backendFormData,
+      signal: createSafeTimeoutSignal(SHEETSAGE_BACKEND_TIMEOUT_MS),
     });
 
     const payload = await response.json().catch(() => null);
-    await cleanupRemoteAudioSource(audioSource);
 
     if (!response.ok) {
       return NextResponse.json(
@@ -243,8 +182,12 @@ export async function POST(request: NextRequest) {
     if (videoId && isValidVideoId(videoId) && payload?.data) {
       try {
         const sanitizedData = normalizeMelodyResultForCache(videoId, payload.data as SheetSageResult);
-        await setDocumentWithAdminAccess('melody', videoId, sanitizedData);
-        console.log(`🎻 [API] Cached Sheet Sage melody for ${videoId} (${sanitizedData.noteEventCount} notes)`);
+        const saved = await cacheKvSet(`${MELODY_CACHE_KEY_PREFIX}${videoId}`, sanitizedData);
+        if (saved) {
+          console.log(`🎻 [API] Cached Sheet Sage melody for ${videoId} (${sanitizedData.noteEventCount} notes)`);
+        } else {
+          console.warn(`⚠️ [API] Non-critical: local melody cache rejected ${videoId}`);
+        }
       } catch (cacheError) {
         console.error('❌ [API] Failed to persist Sheet Sage melody cache:', cacheError);
       }

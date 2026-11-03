@@ -7,7 +7,7 @@ jest.mock('@/services/chord-analysis/chordRecognitionService', () => ({
   analyzeAudioWithRateLimit: (...args: unknown[]) => mockAnalyzeAudioWithRateLimit(...args),
 }));
 
-jest.mock('@/services/firebase/firestoreService', () => ({
+jest.mock('@/services/storage/localAnalysisStore', () => ({
   getTranscription: (...args: unknown[]) => mockGetTranscription(...args),
   saveTranscription: (...args: unknown[]) => mockSaveTranscription(...args),
   updateTranscriptionEnrichment: (...args: unknown[]) => mockUpdateTranscriptionEnrichment(...args),

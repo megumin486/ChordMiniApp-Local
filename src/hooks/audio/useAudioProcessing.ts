@@ -28,32 +28,18 @@ export const useAudioProcessing = (videoId: string, options: UseAudioProcessingO
 
   const service = AudioProcessingService.getInstance();
 
-  const extractAudio = useCallback(async (forceRedownload: boolean = false, originalTitle?: string) => {
-    setState(prev => service.updateStateForDownloadStart(prev));
-
-    try {
-      const { audioUrl, fromCache, isStreamUrl, streamExpiresAt, title, duration } = await service.extractAudioFromYouTube(videoId, forceRedownload, true, originalTitle);
-      setState(prev => service.updateStateForDownloadSuccess(prev, audioUrl, fromCache, isStreamUrl, streamExpiresAt));
-
-      // Prefer original title from search results, fallback to extracted title
-      const finalTitle = originalTitle || title;
-      if (finalTitle) {
-        setVideoTitle(finalTitle);
-      }
-
-      return { audioUrl, fromCache, isStreamUrl, streamExpiresAt, title: finalTitle, duration };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      let suggestion: string | undefined;
-
-      if (error instanceof Error && 'suggestion' in error) {
-        suggestion = (error as ErrorWithSuggestion).suggestion;
-      }
-
-      setState(prev => service.updateStateForDownloadError(prev, errorMessage, suggestion));
-      throw error;
-    }
-  }, [videoId, service]);
+  /**
+   * YouTube audio extraction — disabled.
+   *
+   * FEATURE_SCOPE items 1-2 removed YouTube search and URL extraction.
+   * Local uploads call `analyzeAudio` instead; this callback is retained only
+   * so the hook's return signature stays stable.
+   */
+  const extractAudio = useCallback(async (_forceRedownload: boolean = false, _originalTitle?: string) => {
+    throw new Error(
+      'YouTube audio extraction is not available in the local-only build. Upload a local audio file instead.'
+    );
+  }, []);
 
   const analyzeAudio = useCallback(async (
     audioUrl: string,

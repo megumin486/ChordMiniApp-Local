@@ -47,6 +47,8 @@ export type ChordDetectorType = 'chord-cnn-lstm' | 'btc-sl' | 'btc-pl';
 // Unified analysis result consumed by UI
 export interface AnalysisResult {
   chords: ChordDetectionResult[];
+  /** Content-addressed audio id in the local cache (Phase 3): feeds the harmony engine's audio key check */
+  audioId?: string;
   beats: BeatInfo[];
   downbeats?: number[];  // Downbeats from Beat-Transformer
   downbeats_with_measures?: DownbeatInfo[];

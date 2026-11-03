@@ -29,6 +29,23 @@ BTC_PL_CHECKPOINTS_DIR = CHORDMINI_DIR / "checkpoints"
 # Audio directory
 AUDIO_DIR = PROJECT_ROOT / "public" / "audio"
 
+# --- Phase 3: local persistence (replaces Firestore + Firebase Storage) ---
+# Everything below is local-disk only: no network, no credentials, no cloud SDK.
+# All locations are overridable by env var so a deployment can move the data dir.
+DATA_DIR = Path(os.environ.get("CHORDMINI_DATA_DIR", str(BACKEND_DIR / "data")))
+CACHE_DB_PATH = Path(os.environ.get("CHORDMINI_CACHE_DB", str(DATA_DIR / "chordmini_cache.db")))
+AUDIO_STORE_DIR = Path(os.environ.get("CHORDMINI_AUDIO_DIR", str(DATA_DIR / "audio")))
+
+# LRU budget for the content-addressed audio store (megabytes).
+AUDIO_STORE_MAX_BYTES = int(float(os.environ.get("CHORDMINI_AUDIO_MAX_MB", "2048")) * 1024 * 1024)
+
+# How long an analysis result stays eligible for a cache hit. 0 disables expiry.
+CACHE_TTL_DAYS = float(os.environ.get("CHORDMINI_CACHE_TTL_DAYS", "30"))
+
+# Key/value entries (e.g. the detect-key cache) are keyed on a version string and
+# are deterministic, so they do not expire by default.
+KV_CACHE_TTL_DAYS = float(os.environ.get("CHORDMINI_KV_TTL_DAYS", "0"))
+
 # Model checkpoint paths
 BEAT_TRANSFORMER_CHECKPOINT = BEAT_TRANSFORMER_DIR / "checkpoint" / "fold_4_trf_param.pt"
 
@@ -109,7 +126,9 @@ def ensure_directories_exist():
     """
     directories = [
         AUDIO_DIR,
-        TEMPLATES_DIR
+        TEMPLATES_DIR,
+        DATA_DIR,
+        AUDIO_STORE_DIR
     ]
 
     for directory in directories:

@@ -4,8 +4,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 
 import { useAnalyzePageOrchestrator } from '@/hooks/analyze/useAnalyzePageOrchestrator';
 import { extractAudioFromYouTube } from '@/services/audio/audioProcessingExtracted';
-import { getTranscription, updateTranscriptionEnrichment } from '@/services/firebase/firestoreService';
-import { getCachedAudioFile } from '@/services/firebase/firebaseStorageService';
+import { getTranscription, updateTranscriptionEnrichment, getCachedAudioFile } from '@/services/storage/localAnalysisStore';
 import { detectKey } from '@/services/audio/keyDetectionService';
 
 jest.mock('@/services/audio/audioProcessingExtracted', () => ({
@@ -13,25 +12,15 @@ jest.mock('@/services/audio/audioProcessingExtracted', () => ({
   handleAudioAnalysis: jest.fn(),
 }));
 
-jest.mock('@/services/firebase/firestoreService', () => ({
+jest.mock('@/services/storage/localAnalysisStore', () => ({
   getTranscription: jest.fn(),
   updateTranscriptionEnrichment: jest.fn(),
+  getCachedAudioFile: jest.fn(),
+  saveTranscription: jest.fn(),
 }));
 
 jest.mock('@/services/audio/keyDetectionService', () => ({
   detectKey: jest.fn(),
-}));
-
-jest.mock('@/config/firebase', () => ({
-  ensureFirebaseInitialized: jest.fn().mockResolvedValue(undefined),
-}));
-
-jest.mock('@/utils/firebaseConnectionManager', () => ({
-  withFirebaseConnectionCheck: jest.fn((operation: () => unknown) => operation()),
-}));
-
-jest.mock('@/services/firebase/firebaseStorageService', () => ({
-  getCachedAudioFile: jest.fn(),
 }));
 
 const mockExtractAudioFromYouTube = extractAudioFromYouTube as jest.MockedFunction<typeof extractAudioFromYouTube>;
@@ -62,7 +51,7 @@ const createProps = (overrides: Record<string, unknown> = {}) => ({
   durationFromSearch: null,
   channelFromSearch: null,
   thumbnailFromSearch: null,
-  firebaseReady: false,
+  analysisReady: false,
   modelsInitialized: true,
   beatDetector: 'madmom' as const,
   chordDetector: 'btc-sl' as const,
@@ -310,7 +299,7 @@ describe('useAnalyzePageOrchestrator key detection cache flow', () => {
     mockExtractAudioFromYouTube.mockRejectedValue(new Error('provider unavailable'));
 
     const props = createProps({
-      firebaseReady: true,
+      analysisReady: true,
       analysisResults: null,
       showRomanNumerals: false,
       skipInitialCacheBootstrap: false,

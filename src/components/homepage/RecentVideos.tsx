@@ -5,39 +5,12 @@ import Link from 'next/link';
 import { Card, CardBody, Button, Chip, Select, SelectItem, Skeleton } from '@heroui/react';
 import { useIsVisible } from '@/hooks/scroll/useIntersectionObserver';
 import { useRecentVideosQuery } from '@/hooks/query/useRecentVideosQuery';
-import { buildAnalyzePageUrl } from '@/utils/analyzeRouteUtils';
 import {
   ALL_KEYS_VALUE,
   RECENT_VIDEOS_PAGE_SIZE,
 } from '@/services/query/recentVideos';
 
-const KEY_OPTIONS = [
-  { value: ALL_KEYS_VALUE, label: 'All Keys' },
-  { value: 'C major', label: 'C Major' },
-  { value: 'C minor', label: 'C Minor' },
-  { value: 'C# major', label: 'C# / D♭ Major' },
-  { value: 'C# minor', label: 'D♭ / C# Minor' },
-  { value: 'D major', label: 'D Major' },
-  { value: 'D minor', label: 'D Minor' },
-  { value: 'E♭ major', label: 'D# / E♭ Major' },
-  { value: 'E♭ minor', label: 'E♭ Minor' },
-  { value: 'E major', label: 'E Major' },
-  { value: 'E minor', label: 'E Minor' },
-  { value: 'F major', label: 'F Major' },
-  { value: 'F minor', label: 'F Minor' },
-  { value: 'F# major', label: 'F# / G♭ Major' },
-  { value: 'F# minor', label: 'G♭ / F# Minor' },
-  { value: 'G major', label: 'G Major' },
-  { value: 'G minor', label: 'G Minor' },
-  { value: 'A♭ major', label: 'A♭ Major' },
-  { value: 'A♭ minor', label: 'G# / A♭ Minor' },
-  { value: 'A major', label: 'A Major' },
-  { value: 'A minor', label: 'A Minor' },
-  { value: 'B♭ major', label: 'B♭ Major' },
-  { value: 'B♭ minor', label: 'A# / B♭ Minor' },
-  { value: 'B major', label: 'B Major' },
-  { value: 'B minor', label: 'B Minor' },
-];
+import { KEY_OPTIONS } from '@/utils/keyFilterOptions';
 
 export default function RecentVideos() {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -204,42 +177,33 @@ export default function RecentVideos() {
             <Card
               key={video.videoId}
               as={Link}
-              href={buildAnalyzePageUrl(video.videoId, {
-                title: video.title && video.title !== `Video ${video.videoId}` ? video.title : null,
-                channel: video.channelTitle || null,
-                thumbnail: video.thumbnailUrl || null,
-                beatModel: (video.beatModel as 'madmom' | 'beat-transformer' | null) || null,
-                chordModel: (video.chordModel as 'chord-cnn-lstm' | 'btc-sl' | 'btc-pl' | null) || null,
-              })}
+              href="/analyze"
               isPressable
               className="group hover:scale-[1.02] transition-all duration-200 bg-content1 dark:bg-white/[0.06] border border-divider dark:border-white/10 hover:border-primary/50 dark:hover:border-primary/50 hover:shadow-lg"
             >
               <CardBody className="p-3">
                 <div className="flex gap-3">
                   <div className="relative w-20 h-12 bg-gray-100 dark:bg-gray-600 rounded-md overflow-hidden flex-shrink-0 shadow-sm transition-all duration-300 border border-gray-200 dark:border-gray-500">
-                    {/* Intentionally use direct YouTube thumbnails to avoid Vercel image-optimization quota usage. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={video.thumbnailUrl || '/hero-image-placeholder.svg'}
-                      alt={video.title || 'Video thumbnail'}
-                      width={80}
-                      height={48}
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => { e.currentTarget.src = '/hero-image-placeholder.svg'; }}
-                    />
+                    {/* No cover art locally (audio comes from an upload, no remote thumbnail); inline icon, zero network */}
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      className="h-full w-full p-3 text-gray-400 dark:text-gray-300"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M9 18V6l10-2v12" />
+                      <circle cx="6" cy="18" r="3" />
+                      <circle cx="16" cy="16" r="3" />
+                    </svg>
                     <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all duration-200"></div>
                     {video.duration && <div className="absolute bottom-0.5 right-0.5 bg-black bg-opacity-75 text-white text-xs px-1 py-0.5 rounded">{formatDuration(video.duration)}</div>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-base font-medium text-gray-800 dark:text-gray-100 line-clamp-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors mb-1">{video.title}</h4>
-                    {video.channelTitle && (
-                      <div className="text-xs text-gray-600 dark:text-gray-300 mb-1 truncate">
-                        {video.channelTitle}
-                      </div>
-                    )}
                     <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
                       <div className="flex items-center justify-between"><span>{formatDate(video.processedAt)}</span>{video.bpm && (<span className="text-blue-600 dark:text-blue-400 font-medium">{formatBPM(video.bpm)}</span>)}</div>
                       <div className="flex items-center justify-between gap-2">

@@ -29,7 +29,7 @@ def api_docs_json():
     docs = {
         "title": "ChordMini Audio Analysis API",
         "version": "1.0.0",
-        "description": "API for audio analysis including beat detection, chord recognition, and lyrics fetching",
+        "description": "API for audio analysis including beat detection and chord recognition",
         "base_url": request.host_url.rstrip('/'),
         "endpoints": [
             {
@@ -44,8 +44,7 @@ def api_docs_json():
                             "status": "healthy",
                             "message": "Audio analysis API is running",
                             "beat_model": "Beat-Transformer",
-                            "chord_model": "Chord-CNN-LSTM",
-                            "genius_available": True
+                            "chord_model": "Chord-CNN-LSTM"
                         }
                     }
                 }
@@ -181,62 +180,6 @@ def api_docs_json():
                         }
                     }
                 }
-            },
-            {
-                "path": "/api/genius-lyrics",
-                "method": "POST",
-                "summary": "Fetch lyrics from Genius.com",
-                "description": "Search and retrieve lyrics from Genius.com using artist and song title. API key is configured server-side.",
-                "parameters": {
-                    "artist": {
-                        "type": "string",
-                        "required": True,
-                        "description": "Artist name"
-                    },
-                    "title": {
-                        "type": "string",
-                        "required": True,
-                        "description": "Song title"
-                    },
-                    "search_query": {
-                        "type": "string",
-                        "required": False,
-                        "description": "Alternative search query (optional, overrides artist/title)"
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Lyrics retrieval results",
-                        "example": {
-                            "success": True,
-                            "lyrics": "Hey Jude, don't make it bad...",
-                            "metadata": {
-                                "title": "Hey Jude",
-                                "artist": "The Beatles",
-                                "album": "Hey Jude",
-                                "genius_url": "https://genius.com/the-beatles-hey-jude-lyrics",
-                                "genius_id": 378195,
-                                "thumbnail_url": "https://images.genius.com/..."
-                            },
-                            "source": "genius.com"
-                        }
-                    },
-                    "404": {
-                        "description": "Song not found",
-                        "example": {
-                            "success": False,
-                            "error": "Song not found on Genius.com",
-                            "searched_for": "Hey Jude by The Beatles"
-                        }
-                    },
-                    "500": {
-                        "description": "API key not configured or other server error",
-                        "example": {
-                            "success": False,
-                            "error": "Genius API key not configured. Please set GENIUS_API_KEY environment variable."
-                        }
-                    }
-                }
             }
         ],
         "rate_limits": {
@@ -258,8 +201,6 @@ def api_docs_json():
                 "moderate_processing": {
                     "limit": "10 requests per minute",
                     "endpoints": [
-                        "/api/genius-lyrics",
-                        "/api/lrclib-lyrics",
                         "/api/search-youtube",
                         "/api/search-piped"
                     ],

@@ -35,7 +35,26 @@ export interface KeyDetectionResult {
       targetKey: string;
       romanNumeral: string;
     }>;
+    sections?: Array<{
+      startIndex: number;
+      endIndex: number;
+      key: string;
+      confidence?: number;
+    }>;
   } | null;
+  // NEW (harmony engine v4): key source and modulation detail
+  keySource?: string;
+  chordKey?: string;
+  keyConflict?: boolean;
+  /** Key confidence 0..1 (needed by item 27 prompt export; null on fallback) */
+  keyConfidence?: number | null;
+  modulations?: Array<{
+    fromKey: string;
+    toKey: string;
+    atIndex: number;
+    isRelative?: boolean;
+    source?: string;
+  }>;
 }
 
 export interface ChordData {
@@ -45,8 +64,12 @@ export interface ChordData {
 
 /**
  * Detect the musical key and modulations from a chord progression
+ *
+ * @param audioId Optional content-addressed local audio id. When supplied, the
+ *                backend runs its madmom key CNN on the audio itself, which is
+ *                far more robust than reading chord symbols alone.
  */
-export async function detectKey(chords: ChordData[], includeEnharmonicCorrection: boolean = false, bypassCache: boolean = false, includeRomanNumerals: boolean = false): Promise<KeyDetectionResult> {
+export async function detectKey(chords: ChordData[], includeEnharmonicCorrection: boolean = false, bypassCache: boolean = false, includeRomanNumerals: boolean = false, audioId?: string | null): Promise<KeyDetectionResult> {
   try {
     const response = await fetch('/api/detect-key', {
       method: 'POST',
@@ -57,7 +80,8 @@ export async function detectKey(chords: ChordData[], includeEnharmonicCorrection
         chords,
         includeEnharmonicCorrection,
         bypassCache,
-        includeRomanNumerals
+        includeRomanNumerals,
+        ...(audioId ? { audioId } : {})
       }),
     });
 

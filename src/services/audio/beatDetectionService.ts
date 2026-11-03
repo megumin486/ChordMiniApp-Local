@@ -2,7 +2,7 @@
 import { createSafeTimeoutSignal } from '@/utils/environmentUtils';
 import { getAudioDurationFromFile } from '@/utils/audioDurationUtils';
 import { offloadUploadService } from '../storage/offloadUploadService';
-import { getAppCheckTokenForApi } from '@/config/firebase';
+import { getAppCheckTokenForApi } from '@/utils/appCheckToken';
 import {
   buildBeatModelInfoResult,
   fallbackBeatModelInfo,

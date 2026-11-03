@@ -8,7 +8,7 @@ import {
   ChordGridSkeleton,
   LyricsSkeleton,
 } from '@/components/common/SkeletonLoaders';
-import type { RomanNumeralData, SequenceCorrectionsData } from '@/services/firebase/firestoreService';
+import type { RomanNumeralData, SequenceCorrectionsData } from '@/services/storage/localAnalysisStore';
 import type { AnalyzeResultsPaneProps } from '../_types/analyzePageViewModel';
 import AnalyzeEmptyState from './AnalyzeEmptyState';
 
@@ -22,10 +22,8 @@ const ChordGridContainer = dynamic(() => import('@/components/chord-analysis/Cho
   ssr: false,
 });
 
-const LyricsSection = dynamic(() => import('@/components/lyrics/LyricsSection').then(mod => ({ default: mod.LyricsSection })), {
-  loading: () => <LyricsSkeleton />,
-  ssr: false,
-});
+// LyricsSection removed: lyric transcription / sync / translation are not
+// supported in the local-only build (FEATURE_SCOPE items 18-21).
 
 const GuitarChordsTab = dynamic(() => import('@/components/chord-analysis/GuitarChordsTab'), {
   loading: () => <div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
@@ -163,21 +161,6 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
           />
         )}
       </div>
-
-      {props.activeTab === 'lyricsChords' && (
-        <LyricsSection
-          lyrics={props.lyrics}
-          showLyrics={props.showLyrics}
-          hasCachedLyrics={props.hasCachedLyrics}
-          currentTime={props.currentTime}
-          fontSize={props.fontSize}
-          onFontSizeChange={props.onFontSizeChange}
-          theme={props.theme}
-          analysisResults={analysisResults}
-          segmentationData={segmentationData}
-          sequenceCorrections={sequenceCorrections}
-        />
-      )}
 
     </div>
   );

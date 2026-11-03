@@ -2,59 +2,38 @@
 
 import React from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useApiKeys } from '@/hooks/settings/useApiKeys';
-import ApiKeySettings from '@/components/settings/ApiKeySettings';
 import Navigation from '@/components/common/Navigation';
-import { Card, CardBody, Switch, Tabs, Tab, Spinner, Divider } from '@heroui/react';
-import { FiSettings, FiKey, FiLock, FiMoon, FiShield, FiDatabase, FiBarChart2 } from 'react-icons/fi';
-import { ApiCredentialService } from '@/types/apiKeyTypes';
+import { Card, CardBody, Switch, Tabs, Tab, Divider } from '@heroui/react';
+import { FiSettings, FiLock, FiMoon, FiShield, FiDatabase } from 'react-icons/fi';
+import type { ReactNode } from 'react';
+
+/**
+ * Settings page — local-only build.
+ *
+ * The API Keys tab was removed: nothing in this build talks to a cloud service,
+ * so there is no key to manage. The privacy tab now describes what actually
+ * happens on this machine (SQLite cache + local audio store).
+ */
+
+interface PrivacyItemProps {
+  icon: ReactNode;
+  iconBg: string;
+  title: string;
+  description: string;
+}
+
+const PrivacyItem = ({ icon, iconBg, title, description }: PrivacyItemProps) => (
+  <div className="flex items-start gap-3">
+    <div className={`p-2 rounded-lg ${iconBg}`}>{icon}</div>
+    <div>
+      <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h4>
+      <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+    </div>
+  </div>
+);
 
 export default function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
-  const {
-    apiKeyStatus,
-    isLoading,
-    setApiKey,
-    removeApiKey,
-    refreshApiKeyStatus,
-    isEncryptionSupported
-  } = useApiKeys();
-
-  const handleApiKeyUpdate = async (service: ApiCredentialService, key: string | null) => {
-    try {
-      if (key) {
-        const validation = await setApiKey(service, key);
-        if (!validation.isValid) {
-          throw new Error(validation.error || 'Invalid API key');
-        }
-      } else {
-        await removeApiKey(service);
-      }
-      await refreshApiKeyStatus();
-    } catch (error) {
-      console.error('Failed to update API key:', error);
-      throw error;
-    }
-  };
-
-  if (!isEncryptionSupported()) {
-    return (
-      <div className="min-h-screen bg-main-bg">
-        <Navigation />
-        <div className="container mx-auto px-4 py-8">
-          <Card className="max-w-2xl mx-auto" shadow="sm">
-            <CardBody className="gap-2">
-              <h1 className="text-xl font-bold text-danger">Encryption Not Supported</h1>
-              <p className="text-sm text-danger-600 dark:text-danger-400">
-                Your browser does not support the Web Crypto API, which is required for secure API key storage.
-                Please use a modern browser.
-              </p>
-            </CardBody>
-          </Card>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen dark:bg-dark-bg">
@@ -63,7 +42,7 @@ export default function SettingsPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2 text-foreground">Settings</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Manage your preferences and API configurations
+            Manage your local preferences
           </p>
         </div>
 
@@ -114,37 +93,6 @@ export default function SettingsPage() {
               </div>
             </Tab>
 
-            {/* API Keys Tab */}
-            <Tab
-              key="apiKeys"
-              title={
-                <div className="flex items-center space-x-2">
-                  <FiKey className="w-4 h-4" />
-                  <span>API Keys</span>
-                </div>
-              }
-            >
-              {isLoading ? (
-                <Card shadow="sm" className="border border-gray-200 dark:border-gray-700">
-                  <CardBody>
-                    <div className="flex items-center justify-center py-8">
-                      <Spinner color="primary" size="sm" />
-                      <span className="ml-3 text-sm text-gray-500 dark:text-gray-400">
-                        Loading API key status...
-                      </span>
-                    </div>
-                  </CardBody>
-                </Card>
-              ) : (
-                <div className="pt-1">
-                  <ApiKeySettings
-                    onApiKeyUpdate={handleApiKeyUpdate}
-                    apiKeyStatus={apiKeyStatus}
-                  />
-                </div>
-              )}
-            </Tab>
-
             {/* Privacy Tab */}
             <Tab
               key="privacy"
@@ -161,22 +109,22 @@ export default function SettingsPage() {
                     <PrivacyItem
                       icon={<FiShield className="w-4 h-4 text-success" />}
                       iconBg="bg-success-50 dark:bg-success-900/20"
-                      title="API Key Storage"
-                      description="Encrypted locally via Web Crypto API. Keys never leave your device."
+                      title="No Accounts, No Keys"
+                      description="This build runs entirely on this machine. There is no sign-in, no API key and no cloud service to configure."
                     />
                     <Divider />
                     <PrivacyItem
                       icon={<FiDatabase className="w-4 h-4 text-blue" />}
                       iconBg="bg-primary-50 dark:bg-primary-900/20"
                       title="Cache Data"
-                      description="Analysis results are cached in Firebase for performance. No personal data is stored."
+                      description="Analysis results and uploaded audio are cached in a local SQLite database and a local audio directory. You can clear them from the Analyze page."
                     />
                     <Divider />
                     <PrivacyItem
-                      icon={<FiBarChart2 className="w-4 h-4 text-warning" />}
+                      icon={<FiShield className="w-4 h-4 text-warning" />}
                       iconBg="bg-warning-50 dark:bg-warning-900/20"
-                      title="Analytics"
-                      description="Anonymous usage statistics only. No personal data or API keys included."
+                      title="Network Access"
+                      description="Audio is never uploaded anywhere. Analysis requests only go to the local Python service on 127.0.0.1:5001."
                     />
                   </CardBody>
                 </Card>
@@ -184,25 +132,6 @@ export default function SettingsPage() {
             </Tab>
           </Tabs>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function PrivacyItem({ icon, iconBg, title, description }: {
-  icon: React.ReactNode;
-  iconBg: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <div className={`p-2 rounded-lg shrink-0 ${iconBg}`}>
-        {icon}
-      </div>
-      <div>
-        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h4>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
       </div>
     </div>
   );

@@ -51,7 +51,7 @@ const AnalysisHeader: React.FC<AnalysisHeaderProps> = ({
     : 'Show corrected enharmonic spellings';
 
   const transcribeTooltip = !canTranscribe
-    ? 'Add your Music.AI API key in Settings to enable lyrics transcription'
+    ? 'Lyrics transcription needs Music.ai, which this local build does not include'
     : isTranscribingLyrics
       ? 'Transcription in progress...'
       : 'AI transcription from audio (word-level sync)';

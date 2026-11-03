@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSafeTimeoutSignal } from '@/utils/environmentUtils';
 import { audioMetadataService } from '@/services/audio/audioMetadataService';
-import { isFirebaseStorageUrl, parseAndValidateAudioSourceUrl } from '@/utils/urlValidationUtils';
+import { isCloudStorageUrl, parseAndValidateAudioSourceUrl } from '@/utils/urlValidationUtils';
 import { safeFetchAudioSource } from '@/utils/safeServerAudioFetch';
 
 /**
@@ -27,11 +27,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`🎵 Detecting duration for: ${audioUrl}`);
 
-    const isFirebaseUrl = isFirebaseStorageUrl(audioUrl);
-    console.log(`🔎 audio-duration: videoId=${videoId || 'none'}, isFirebaseUrl=${isFirebaseUrl}`);
+    const isRemoteCloudUrl = isCloudStorageUrl(audioUrl);
+    console.log(`🔎 audio-duration: videoId=${videoId || 'none'}, isRemoteCloudUrl=${isRemoteCloudUrl}`);
 
     // PRIORITY FIX: Check for cached complete audio file first (from parallel pipeline)
-    if (videoId && isFirebaseUrl) {
+    if (videoId && isRemoteCloudUrl) {
       try {
         const { getCachedAudioFile, getCachedAudioMeta } = await import('@/services/api/parallelPipelineService');
         const meta = getCachedAudioMeta(videoId);
@@ -150,12 +150,12 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Try to get duration from HTTP headers with Firebase Storage retry logic
+ * Try to get duration from HTTP headers with retry logic for remote URLs
  */
 async function getDurationFromHeaders(audioUrl: string): Promise<number> {
   parseAndValidateAudioSourceUrl(audioUrl);
-  const isFirebaseUrl = isFirebaseStorageUrl(audioUrl);
-  const maxRetries = isFirebaseUrl ? 3 : 1;
+  const isRemoteCloudUrl = isCloudStorageUrl(audioUrl);
+  const maxRetries = isRemoteCloudUrl ? 3 : 1;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -189,10 +189,10 @@ async function getDurationFromHeaders(audioUrl: string): Promise<number> {
         throw new Error('No duration information in headers');
       }
 
-      // Handle Firebase Storage 403 errors with retry
-      if (isFirebaseUrl && response.status === 403 && attempt < maxRetries) {
+      // Handle remote audio fetch returned 403s with retry
+      if (isRemoteCloudUrl && response.status === 403 && attempt < maxRetries) {
         const delay = 2000 * attempt;
-        console.log(`⚠️ Firebase Storage 403 error (attempt ${attempt}/${maxRetries}), waiting ${delay}ms...`);
+        console.log(`⚠️ remote audio fetch returned 403 (attempt ${attempt}/${maxRetries}), waiting ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -216,12 +216,12 @@ async function getDurationFromHeaders(audioUrl: string): Promise<number> {
 
 
 /**
- * Estimate duration from file size with Firebase Storage retry logic
+ * Estimate duration from file size with retry logic for remote URLs
  */
 async function estimateDurationFromFileSize(audioUrl: string): Promise<number> {
   parseAndValidateAudioSourceUrl(audioUrl);
-  const isFirebaseUrl = isFirebaseStorageUrl(audioUrl);
-  const maxRetries = isFirebaseUrl ? 3 : 1;
+  const isRemoteCloudUrl = isCloudStorageUrl(audioUrl);
+  const maxRetries = isRemoteCloudUrl ? 3 : 1;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -263,10 +263,10 @@ async function estimateDurationFromFileSize(audioUrl: string): Promise<number> {
         return clampedDuration;
       }
 
-      // Handle Firebase Storage 403 errors with retry
-      if (isFirebaseUrl && response.status === 403 && attempt < maxRetries) {
+      // Handle remote audio fetch returned 403s with retry
+      if (isRemoteCloudUrl && response.status === 403 && attempt < maxRetries) {
         const delay = 2000 * attempt;
-        console.log(`⚠️ Firebase Storage 403 error (attempt ${attempt}/${maxRetries}), waiting ${delay}ms...`);
+        console.log(`⚠️ remote audio fetch returned 403 (attempt ${attempt}/${maxRetries}), waiting ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }

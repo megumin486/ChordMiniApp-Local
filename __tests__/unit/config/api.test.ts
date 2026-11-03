@@ -24,7 +24,9 @@ describe('config/api', () => {
     });
     expect(getApiUrl('RECOGNIZE_CHORDS')).toBe(API_ROUTES.RECOGNIZE_CHORDS);
     expect(isExternalBackendEndpoint('RECOGNIZE_CHORDS')).toBe(false);
-    expect(getApiUrl('TRANSCRIBE_SHEETSAGE')).toBe('/api/transcribe-sheetsage');
+    // The Sheet Sage route was removed from the local build; only surviving endpoints are covered
+    expect(getApiUrl('DETECT_KEY')).toBe('/api/detect-key');
+    expect(getApiUrl('ANALYZE_HARMONY')).toBe('/api/analyze-harmony');
   });
 
   it('uses default fetch options for internal routes', async () => {
@@ -46,7 +48,7 @@ describe('config/api', () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200, statusText: 'OK' });
     const { apiPost, apiGet } = await import('@/config/api');
 
-    await apiPost('CHATBOT', { prompt: 'hi' }, {
+    await apiPost('ANALYZE_HARMONY', { prompt: 'hi' }, {
       headers: { Authorization: 'Bearer token' },
       signal: 'mock-signal' as unknown as AbortSignal,
     });
@@ -54,7 +56,7 @@ describe('config/api', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      '/api/chatbot',
+      '/api/analyze-harmony',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ prompt: 'hi' }),

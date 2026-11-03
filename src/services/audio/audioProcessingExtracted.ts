@@ -1,8 +1,9 @@
 import { AnalyzeAudioFileOptions } from '@/services/audio/audioProcessingService';
-import { getTranscription, TranscriptionData } from '@/services/firebase/firestoreService';
+import { getTranscription, TranscriptionData } from '@/services/storage/localAnalysisStore';
 import { apiPost } from '@/config/api';
 import { LyricsData } from '@/types/musicAiTypes';
-import type { BrowserYtDlpQueueState, BrowserYtDlpQueueStatus } from '@/services/audio/browserYtDlpExtractionService';
+// Browser yt-dlp service removed: YouTube extraction dropped in the local-only
+// build (FEATURE_SCOPE items 1-2).
 
 // Types for the service
 interface ErrorWithSuggestion extends Error {
@@ -41,7 +42,10 @@ interface AudioProcessingState {
   fromFirestoreCache: boolean;
   error: string | null;
   suggestion?: string | null;
-  queueStatus?: BrowserYtDlpQueueStatus | null;
+  // Browser yt-dlp queue fields removed: YouTube extraction is disabled in the
+  // local-only build (FEATURE_SCOPE items 1-2). Fields kept as plain `unknown`
+  // so external state snapshots still type-check.
+  queueStatus?: unknown;
   queuePosition?: number | null;
   estimatedWaitSeconds?: number | null;
   leaseId?: string | null;
@@ -67,7 +71,7 @@ export interface AudioProcessingServiceDependencies {
   setLyrics: (lyrics: LyricsData) => void;
   setShowLyrics: (show: boolean) => void;
   setHasCachedLyrics: (cached: boolean) => void;
-  setActiveTab: (tab: 'beatChordMap' | 'lyricsChords') => void;
+  setActiveTab: (tab: 'beatChordMap' | 'guitarChords' | 'pianoVisualizer') => void;
   setIsTranscribingLyrics: (transcribing: boolean) => void;
   setLyricsError: (error: string | null) => void;
 
@@ -299,351 +303,36 @@ export const handleAudioAnalysis = async (deps: AudioProcessingServiceDependenci
  * Transcribe lyrics using Music.AI with word-level synchronization
  * Lines 841-945 from original component
  */
-export const transcribeLyricsWithAI = async (deps: AudioProcessingServiceDependencies): Promise<void> => {
-  const {
-    videoId,
-    audioProcessingState,
-    setLyrics,
-    setShowLyrics,
-    setHasCachedLyrics,
-    setActiveTab,
-    setIsTranscribingLyrics,
-    setLyricsError,
-    lyrics,
-    onLyricsTranscribed
-  } = deps;
-
-  if (!audioProcessingState.audioUrl) {
-    console.error('No audio URL available for lyrics transcription');
-    return;
-  }
-
-  // If lyrics already exist, show confirmation popup for re-transcription
-  if (lyrics && lyrics.lines && lyrics.lines.length > 0) {
-    const confirmed = window.confirm(
-      'Re-transcription will overwrite existing lyrics and consume API credits. Are you sure you want to continue?'
-    );
-    if (!confirmed) {
-      return;
-    }
-  }
-
-  try {
-    setIsTranscribingLyrics(true);
-    setLyricsError(null);
-
-    // Get the user's Music.AI API key
-    const { getMusicAiApiKeyWithValidation } = await import('@/utils/apiKeyUtils');
-    const keyValidation = await getMusicAiApiKeyWithValidation();
-
-    if (!keyValidation.isValid || !keyValidation.apiKey) {
-      setLyricsError(keyValidation.error || 'Music.AI API key not found. Please add your API key in settings.');
-      setIsTranscribingLyrics(false);
-      return;
-    }
-
-    const musicAiApiKey = keyValidation.apiKey;
-
-    const response = await apiPost('TRANSCRIBE_LYRICS', {
-      videoId,
-      audioPath: audioProcessingState.audioUrl, // Fixed: use audioPath instead of audioUrl
-      checkCacheOnly: false, // Explicit: this is a transcription request, not cache-only
-      forceRefresh: false,
-      musicAiApiKey: musicAiApiKey // Add the API key to the request
-    });
-
-    const data = await response.json();
-
-    if (data && data.lyrics) {
-      setLyrics(data.lyrics);
-      onLyricsTranscribed?.(data.lyrics);
-      setShowLyrics(true);
-      setHasCachedLyrics(false);
-      setActiveTab('lyricsChords');
-    } else {
-      throw new Error(data?.error || 'Failed to transcribe lyrics');
-    }
-  } catch (error) {
-    console.error('Lyrics transcription failed:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    setLyricsError(errorMessage);
-  } finally {
-    setIsTranscribingLyrics(false);
-  }
+export const transcribeLyricsWithAI = async (_deps: AudioProcessingServiceDependencies): Promise<void> => {
+  // Lyrics transcription is disabled in the local-only build.
+  //
+  // FEATURE_SCOPE items 18-21 (lyric transcription / sync / translation /
+  // Lead Sheet) were removed because they depend on external services
+  // (Music.ai, Genius, LRClib, Gemini) that cannot run offline.
+  //
+  // The function is kept as a no-op stub so existing call sites and the
+  // dependency-injection signature continue to compile. The UI no longer
+  // exposes a lyrics tab, so this should never be invoked at runtime.
+  console.warn(
+    '[lyrics] Transcription is disabled in the local-only build; no external service was called.'
+  );
 };
 
 /**
  * Extract audio from YouTube with comprehensive metadata preservation
  * Lines 947-1120 from original component
  */
-export const extractAudioFromYouTube = async (deps: AudioProcessingServiceDependencies, forceRefresh: boolean = false): Promise<{ audioUrl?: string; fromCache?: boolean; isStreamUrl?: boolean; streamExpiresAt?: number; title?: string; duration?: number } | void> => {
-  const {
-    videoId,
-    titleFromSearch,
-    durationFromSearch,
-    channelFromSearch,
-    thumbnailFromSearch,
-    setAudioProcessingState,
-    setDuration,
-    setShowExtractionNotification,
-    extractionLockRef,
-    progress: _progress,  
-    processingContext,
-
-    // Cancellation & staleness controls
-    requestId,
-    abortSignal,
-    isRequestStillCurrent,
-  } = deps;
-
-  // Prevent concurrent extractions
-  if (extractionLockRef.current) {
-    console.log('🔒 Audio extraction already in progress, skipping...');
-    return;
-  }
-
-  extractionLockRef.current = true;
-
-  try {
-    // console.log(`🎵 Starting audio extraction for video: ${videoId}`);
-    // console.log(`📊 Search metadata: title="${titleFromSearch}", duration="${durationFromSearch}", channel="${channelFromSearch}"`);
-
-    // Update state to show extraction is starting
-    setAudioProcessingState(prev => ({
-      ...prev,
-      isExtracting: true,
-      isDownloading: true, // Set the downloading flag to true
-      isExtracted: false,
-      error: null,
-      suggestion: null,
-      queueStatus: null,
-      queuePosition: null,
-      estimatedWaitSeconds: null,
-      leaseId: null
-    }));
-
-    // Start processing context
-    processingContext.startProcessing();
-    // Use standardized stage name for extraction to align with ProcessingStage
-    processingContext.setStage('extracting');
-    processingContext.setProgress(0);
-    processingContext.setStatusMessage('Extracting audio from YouTube...');
-
-    // Prepare metadata for the extraction request
-    const videoMetadata = {
-      id: videoId,
-      title: titleFromSearch || undefined,
-      duration: durationFromSearch || undefined,
-      channelTitle: channelFromSearch || undefined,
-      thumbnail: thumbnailFromSearch || undefined
-    };
-
-    // Progress animation during extraction
-    let currentProgress = 0;
-    const progressInterval = setInterval(() => {
-      currentProgress = Math.min(currentProgress + 2, 90);
-      processingContext.setProgress(currentProgress);
-    }, 300);
-
-    try {
-      const response = await apiPost('EXTRACT_AUDIO', {
-        videoId,
-        forceRedownload: forceRefresh,
-        videoMetadata,
-        originalTitle: titleFromSearch
-      }, {
-        signal: abortSignal
-      });
-
-      // Clear progress interval
-      clearInterval(progressInterval);
-
-      const data = await response.json();
-
-      // Ignore stale responses (user switched videos mid-flight)
-      if (!isRequestStillCurrent(requestId)) {
-        console.log('🔁 Stale extraction response ignored', { requestId, videoId });
-        return;
-      }
-
-      if (!data.success && data.requiresBrowserExtraction) {
-        const {
-          extractAudioWithBrowserYtDlp,
-        } = await import('@/services/audio/browserYtDlpExtractionService');
-        const browserMetadata = {
-          videoId,
-          ...videoMetadata,
-        };
-        const browserOptions = {
-          abortSignal,
-          onProgress: (_stage: string, message: string, progress?: number) => {
-            processingContext.setStatusMessage(message);
-            if (typeof progress === 'number') {
-              processingContext.setProgress(Math.min(95, Math.max(currentProgress, progress)));
-            }
-          },
-          onQueueState: (queueState: BrowserYtDlpQueueState) => {
-            setAudioProcessingState(prev => ({
-              ...prev,
-              queueStatus: queueState.status,
-              queuePosition: queueState.queuePosition,
-              estimatedWaitSeconds: queueState.estimatedWaitSeconds,
-              leaseId: queueState.leaseId,
-            }));
-            if (queueState.status === 'queued') {
-              processingContext.setStatusMessage(
-                queueState.queuePosition > 0
-                  ? `Waiting for extraction queue slot ${queueState.queuePosition}. Estimated wait: ${Math.ceil((queueState.estimatedWaitSeconds || 1) / 60)} minute(s).`
-                  : 'Waiting for the extraction queue...'
-              );
-            }
-          }
-        };
-
-        let browserResult;
-        try {
-          browserResult = await extractAudioWithBrowserYtDlp(browserMetadata, browserOptions);
-        } catch (browserError) {
-          const {
-            shouldUseNativeYtDlpFallback,
-            extractAudioWithNativeYtDlpFallback,
-          } = await import('@/services/audio/browserYtDlpExtractionService');
-
-          if (shouldUseNativeYtDlpFallback(browserError)) {
-            console.log('🔄 Browser yt-dlp encountered access challenge. Falling back to native yt-dlp...');
-            try {
-              browserResult = await extractAudioWithNativeYtDlpFallback(browserMetadata, browserOptions);
-            } catch (fallbackError) {
-              console.error('❌ Native yt-dlp fallback failed:', fallbackError);
-              throw fallbackError;
-            }
-          } else {
-            console.error('❌ Browser yt-dlp extraction failed:', browserError);
-            throw browserError;
-          }
-        }
-
-        data.success = true;
-        data.audioUrl = browserResult.audioUrl;
-        data.title = browserResult.title;
-        data.duration = browserResult.duration;
-        data.fromCache = false;
-        data.isStreamUrl = false;
-        data.method = browserResult.method;
-      }
-
-      if (data.success) {
-        // console.log(`✅ Audio extraction successful: ${data.audioUrl}`);
-        // console.log(`📊 Extraction metadata: fromCache=${data.fromCache}, title="${data.title}", duration=${data.duration}`);
-
-        // Update state with successful extraction
-        setAudioProcessingState(prev => ({
-          ...prev,
-          isExtracting: false,
-          isDownloading: false, // Reset the downloading flag
-          isExtracted: true,
-          audioUrl: data.audioUrl,
-          fromCache: data.fromCache || false,
-          error: null,
-          suggestion: null,
-          queueStatus: null,
-          queuePosition: null,
-          estimatedWaitSeconds: null,
-          leaseId: null
-        }));
-
-        // Update duration if available from extraction
-        if (data.duration && data.duration > 0) {
-          setDuration(data.duration);
-          console.log(`🎵 Updated duration from extraction: ${data.duration} seconds`);
-        } else if (durationFromSearch) {
-          // Fallback to search duration if extraction didn't provide duration
-          const searchDurationSeconds = parseInt(durationFromSearch);
-          if (!isNaN(searchDurationSeconds) && searchDurationSeconds > 0) {
-            setDuration(searchDurationSeconds);
-            console.log(`🎵 Updated duration from search metadata: ${searchDurationSeconds} seconds`);
-          }
-        }
-
-        // Show extraction notification
-        setShowExtractionNotification(true);
-
-        // Complete processing context
-        processingContext.completeProcessing();
-        processingContext.setStage('complete');
-        processingContext.setProgress(100);
-        processingContext.setStatusMessage('Audio extraction completed successfully');
-
-        // FIXED: Return the metadata so the video title can be set properly
-        return {
-          audioUrl: data.audioUrl,
-          fromCache: data.fromCache || false,
-          isStreamUrl: data.isStreamUrl || false,
-          streamExpiresAt: data.streamExpiresAt,
-          title: titleFromSearch || data.title || `YouTube Video ${videoId}`, // Prefer frontend metadata
-          duration: data.duration
-        };
-
-      } else {
-        throw new Error(data.error || 'Audio extraction failed');
-      }
-    } catch (apiError) {
-      // Clear progress interval on error
-      clearInterval(progressInterval);
-      throw apiError;
-    }
-
-  } catch (error) {
-    // If this request was aborted or became stale, do not update state
-    if (abortSignal?.aborted || !isRequestStillCurrent(requestId)) {
-      return;
-    }
-
-    console.error('Audio extraction failed:', error);
-
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    const normalizedErrorMessage = errorMessage.toLowerCase();
-    let suggestion: string | undefined;
-
-    // Determine suggestion based on error type
-    if (normalizedErrorMessage.includes('youtube short')) {
-      suggestion = 'YouTube Shorts cannot be processed. Please try a regular YouTube video.';
-    } else if (normalizedErrorMessage.includes('restricted') || normalizedErrorMessage.includes('unavailable')) {
-      suggestion = 'This video may be restricted or unavailable for download. Try a different video.';
-    } else if (normalizedErrorMessage.includes('network') || normalizedErrorMessage.includes('timeout')) {
-      suggestion = 'Check your internet connection and try again.';
-    } else if (
-      normalizedErrorMessage.includes('rate limit') ||
-      normalizedErrorMessage.includes('rate-limited') ||
-      normalizedErrorMessage.includes('quota') ||
-      normalizedErrorMessage.includes('captcha')
-    ) {
-      suggestion = 'Service temporarily unavailable. Please try again in a few minutes.';
-    }
-
-    // Update state with error
-    setAudioProcessingState(prev => ({
-      ...prev,
-      isExtracting: false,
-      isDownloading: false, // Reset the downloading flag on error
-      isExtracted: false,
-      error: errorMessage,
-      suggestion,
-      queueStatus: null,
-      queuePosition: null,
-      estimatedWaitSeconds: null,
-      leaseId: null
-    }));
-
-    // Update processing context for error
-    processingContext.failProcessing(errorMessage);
-
-    // Create error with suggestion
-    const errorWithSuggestion: ErrorWithSuggestion = new Error(errorMessage);
-    errorWithSuggestion.suggestion = suggestion;
-    throw errorWithSuggestion;
-
-  } finally {
-    extractionLockRef.current = false;
-  }
+export const extractAudioFromYouTube = async (
+  _deps: AudioProcessingServiceDependencies,
+  _forceRefresh: boolean = false
+): Promise<{ audioUrl?: string; fromCache?: boolean; isStreamUrl?: boolean; streamExpiresAt?: number; title?: string; duration?: number } | void> => {
+  // YouTube audio extraction is unavailable in the local-only build.
+  //
+  // FEATURE_SCOPE items 1-2 (YouTube search and URL-based extraction) were
+  // dropped: they require the YouTube Data API plus yt-dlp, both of which are
+  // online-only. Users analyse local audio files instead, which does not go
+  // through this code path.
+  throw new Error(
+    'YouTube audio extraction is not available in the local-only build. Upload a local audio file instead.'
+  );
 };

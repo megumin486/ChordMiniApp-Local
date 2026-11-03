@@ -5,7 +5,7 @@ import {
   saveTranscription,
   TranscriptionData,
   updateTranscriptionEnrichment,
-} from '@/services/firebase/firestoreService';
+} from '@/services/storage/localAnalysisStore';
 import { normalizeThumbnailUrl } from '@/utils/youtubeMetadata';
 
 // Define error types for better type safety
@@ -54,102 +54,22 @@ export class AudioProcessingService {
     return AudioProcessingService.instance;
   }
 
+  /**
+   * YouTube audio extraction — disabled.
+   *
+   * FEATURE_SCOPE items 1-2 dropped YouTube search and URL-based extraction
+   * because both need the YouTube Data API and yt-dlp, which are online-only.
+   * Local audio uploads go through `analyzeAudioFile` instead.
+   */
   async extractAudioFromYouTube(
-    videoId: string,
-    forceRedownload: boolean = false,
-    useStreamUrl: boolean = true,
-    originalTitle?: string
-  ): Promise<{ audioUrl: string; fromCache: boolean; isStreamUrl?: boolean; streamExpiresAt?: number; title?: string; duration?: number }> {
-    try {
-      const response = await fetch('/api/extract-audio', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          videoId,
-          forceRedownload,
-          useStreamUrl,
-          originalTitle
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP error ${response.status}: Failed to extract audio`);
-      }
-
-      if (!data.success) {
-        if (data.requiresBrowserExtraction) {
-          const {
-            extractAudioWithBrowserYtDlp,
-            shouldUseNativeYtDlpFallback,
-            extractAudioWithNativeYtDlpFallback,
-          } = await import('@/services/audio/browserYtDlpExtractionService');
-
-          let browserResult;
-          const browserMetadata = {
-            videoId,
-            title: originalTitle || data.title,
-            duration: data.duration,
-          };
-
-          try {
-            browserResult = await extractAudioWithBrowserYtDlp(browserMetadata);
-          } catch (browserError) {
-            if (shouldUseNativeYtDlpFallback(browserError)) {
-              console.log('🔄 Browser yt-dlp encountered access challenge in service. Falling back to native yt-dlp...');
-              try {
-                browserResult = await extractAudioWithNativeYtDlpFallback(browserMetadata);
-              } catch (fallbackError) {
-                console.error('❌ Native yt-dlp fallback failed in service:', fallbackError);
-                throw fallbackError;
-              }
-            } else {
-              console.error('❌ Browser yt-dlp extraction failed in service:', browserError);
-              throw browserError;
-            }
-          }
-
-          return {
-            audioUrl: browserResult.audioUrl,
-            fromCache: false,
-            isStreamUrl: false,
-            title: browserResult.title,
-            duration: browserResult.duration,
-          };
-        }
-
-        throw new Error(data.error || 'Audio extraction failed');
-      }
-
-      return {
-        audioUrl: data.audioUrl,
-        fromCache: data.fromCache || false,
-        isStreamUrl: data.isStreamUrl || false,
-        streamExpiresAt: data.streamExpiresAt,
-        title: data.title,
-        duration: data.duration
-      };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-
-      // Determine suggestion based on error type
-      let suggestion = null;
-      if (errorMessage.includes('YouTube Short')) {
-        suggestion = 'YouTube Shorts cannot be processed. Please try a regular YouTube video.';
-      } else if (errorMessage.includes('restricted') || errorMessage.includes('unavailable')) {
-        suggestion = 'This video may be restricted or unavailable for download. Try a different video.';
-      } else if (errorMessage.includes('network') || errorMessage.includes('timeout')) {
-        suggestion = 'Check your internet connection and try again.';
-      }
-
-      // Create an error object with additional properties
-      const errorWithSuggestion: ErrorWithSuggestion = new Error(errorMessage);
-      errorWithSuggestion.suggestion = suggestion || undefined;
-      throw errorWithSuggestion;
-    }
+    _videoId: string,
+    _forceRedownload: boolean = false,
+    _useStreamUrl: boolean = true,
+    _originalTitle?: string
+  ): Promise<{ audioUrl?: string; fromCache?: boolean; isStreamUrl?: boolean; streamExpiresAt?: number; title?: string; duration?: number }> {
+    throw new Error(
+      'YouTube audio extraction is not available in the local-only build. Upload a local audio file instead.'
+    );
   }
 
   async analyzeAudioFile(

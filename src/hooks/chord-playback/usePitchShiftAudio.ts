@@ -71,21 +71,22 @@ import {
   usePitchShiftSemitones,
   useSetIsProcessingPitchShift,
   useSetPitchShiftError,
-  useSetIsFirebaseAudioAvailable
+  useSetIsLocalAudioAvailable
 } from '@/stores/uiStore';
+import { dbg } from '@/utils/debugLog';
 
 /**
- * Diagnostic helper — body removed to reduce console noise.
- * Re-add logging selectively when investigating specific bugs.
+ * Diagnostic helper — forwards to the local debug sink (/api/debug-log ->
+ * /tmp/chordmini-debug.log) plus the browser console.
  */
-function _hookDiag(_tag: string, _extra?: Record<string, unknown>): void {
-  // intentionally empty
+function _hookDiag(tag: string, extra?: Record<string, unknown>): void {
+  dbg(`pitchshift.${tag}`, extra);
 }
 
 export interface UsePitchShiftAudioProps {
   youtubePlayer: YouTubePlayer | null;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  firebaseAudioUrl: string | null; // Actually any audio URL (external stream, Firebase Storage, etc.)
+  localAudioUrl: string | null; // Any local audio URL (localhost stream or blob URL)
   isPlaying: boolean;
   currentTime: number;
   playbackRate: number;
@@ -116,7 +117,7 @@ const YOUTUBE_DRIFT_CORRECTION_THRESHOLD_SECONDS = 0.15;
 export const usePitchShiftAudio = ({
   youtubePlayer,
   audioRef,
-  firebaseAudioUrl,
+  localAudioUrl,
   isPlaying,
   currentTime,
   playbackRate,
@@ -128,7 +129,7 @@ export const usePitchShiftAudio = ({
   const pitchShiftSemitones = usePitchShiftSemitones();
   const setIsProcessingPitchShift = useSetIsProcessingPitchShift();
   const setPitchShiftError = useSetPitchShiftError();
-  const setIsFirebaseAudioAvailable = useSetIsFirebaseAudioAvailable();
+  const setIsLocalAudioAvailable = useSetIsLocalAudioAvailable();
 
   const [isPitchShiftReady, setIsPitchShiftReady] = useState(false);
   const pitchShiftService = useRef(getGrainPlayerPitchShiftService());
@@ -204,17 +205,17 @@ export const usePitchShiftAudio = ({
    * Update audio availability when URL changes
    */
   useEffect(() => {
-    const isAvailable = !!firebaseAudioUrl;
-    setIsFirebaseAudioAvailable(isAvailable);
-  }, [firebaseAudioUrl, setIsFirebaseAudioAvailable]);
+    const isAvailable = !!localAudioUrl;
+    setIsLocalAudioAvailable(isAvailable);
+  }, [localAudioUrl, setIsLocalAudioAvailable]);
 
   /**
    * Initialize pitch shift service with audio URL
    */
   const initializePitchShift = useCallback(async () => {
-    if (!firebaseAudioUrl) {
+    if (!localAudioUrl) {
       console.warn('⚠️ No audio URL available for pitch shift');
-      setIsFirebaseAudioAvailable(false);
+      setIsLocalAudioAvailable(false);
       return;
     }
 
@@ -237,12 +238,12 @@ export const usePitchShiftAudio = ({
 
       // Load audio with current pitch shift amount
       _hookDiag('init.loadAudio.start', {
-        audioUrl: firebaseAudioUrl,
+        audioUrl: localAudioUrl,
         semitones: pitchShiftSemitonesRef.current,
         ctxStateBeforeLoad: getAudioContextState(),
       });
       await pitchShiftService.current.loadAudio(
-        firebaseAudioUrl,
+        localAudioUrl,
         pitchShiftSemitonesRef.current,
         playbackRateRef.current, // 🔧 OFF→ON fix: never construct at default rate 1.0
       );
@@ -281,7 +282,7 @@ export const usePitchShiftAudio = ({
 
       setIsPitchShiftReady(true);
       setIsPitchShiftReadyInStore(true);
-      setIsFirebaseAudioAvailable(true);
+      setIsLocalAudioAvailable(true);
       lastSemitones.current = pitchShiftSemitonesRef.current;
 
       // Ensure service is aligned with current page state immediately
@@ -313,23 +314,30 @@ export const usePitchShiftAudio = ({
 
     } catch (error) {
       console.error('❌ Failed to initialize pitch shift:', error);
+      _hookDiag('init.failed', {
+        message: (error as Error)?.message,
+        name: (error as Error)?.name,
+        stack: (error as Error)?.stack?.split('\n').slice(0, 4).join(' | '),
+        audioUrlScheme: localAudioUrl?.slice(0, 12),
+        ctxState: getAudioContextState(),
+      });
       setPitchShiftError('Failed to load pitch-shifted audio. Please try again.');
       setIsPitchShiftReady(false);
       setIsPitchShiftReadyInStore(false);
-      setIsFirebaseAudioAvailable(false);
+      setIsLocalAudioAvailable(false);
     } finally {
       setIsProcessingPitchShift(false);
       isInitializing.current = false;
     }
   }, [
-    firebaseAudioUrl,
+    localAudioUrl,
     // pitchShiftSemitones intentionally read from pitchShiftSemitonesRef
     // so the callback identity stays stable during slider drags. The
     // semitone-change effect handles live updates after init.
     setIsProcessingPitchShift,
     setIsPitchShiftReadyInStore,
     setPitchShiftError,
-    setIsFirebaseAudioAvailable,
+    setIsLocalAudioAvailable,
     setCurrentTime,
     setIsPlaying,
     getYoutubeTimelineTime,
@@ -378,7 +386,23 @@ export const usePitchShiftAudio = ({
    * Switch between YouTube and pitch-shifted audio
    */
   useEffect(() => {
-    if (isPitchShiftEnabled && firebaseAudioUrl) {
+    _hookDiag('toggle.effect', {
+      isPitchShiftEnabled,
+      audioUrlScheme: localAudioUrl ? localAudioUrl.slice(0, 12) : null,
+      hasAudioUrl: !!localAudioUrl,
+      isPitchShiftReady,
+      isInitializing: isInitializing.current,
+      isPlayingRef: isPlayingRef.current,
+      currentTimeRef: currentTimeRef.current,
+      playbackRateRef: playbackRateRef.current,
+      semitonesRef: pitchShiftSemitonesRef.current,
+      htmlAudioPaused: audioRef.current?.paused ?? null,
+      htmlAudioMuted: audioRef.current?.muted ?? null,
+      htmlAudioReadyState: audioRef.current?.readyState ?? null,
+      ctxState: getAudioContextState(),
+    });
+
+    if (isPitchShiftEnabled && localAudioUrl) {
       // Pitch shift enabled: mute YouTube (but keep it playing for visual sync)
       setYouTubePlayerMuted(youtubePlayer, true);
       // CRITICAL: DO NOT pause YouTube - keep it playing for visual sync.
@@ -412,7 +436,7 @@ export const usePitchShiftAudio = ({
     }
   }, [
     isPitchShiftEnabled,
-    firebaseAudioUrl,
+    localAudioUrl,
     youtubePlayer,
     audioRef,
     isPitchShiftReady,
@@ -627,7 +651,22 @@ export const usePitchShiftAudio = ({
     const BASE_SLAVE_DRIFT_TOLERANCE_SEC = 0.08;
 
     const syncGrainPlayerToMaster = () => {
-      if (!youtubeMasterClock.isPlaying()) {
+      // CLOCK SOURCE RESOLUTION — local-upload flow.
+      // The YouTube master clock is only ever driven by usePlaybackState's
+      // handleYouTubePlay/handleYouTubePause/onYoutubeProgress callbacks.
+      // The local upload page (src/app/analyze/page.tsx) plays a plain
+      // <audio> element through audioRef and never touches the clock, so
+      // youtubeMasterClock.isPlaying() is permanently false there. This
+      // branch then paused the GrainPlayer ~40ms after every play(), which
+      // is why enabling pitch shift produced no sound for uploaded files.
+      // Fall back to the HTML audio element (the real master in that flow)
+      // and read its clock LIVE instead of the stepped ~4Hz `currentTime`
+      // prop, so the 40ms drift check compares against a fresh position.
+      const masterAdvancing = youtubeMasterClock.isPlaying();
+      const htmlAudio = audioRef?.current ?? null;
+      const fallbackPlaying = isPlayingRef.current || (!!htmlAudio && !htmlAudio.paused);
+
+      if (!masterAdvancing && !fallbackPlaying) {
         // Master is paused — ensure grain is paused too.
         const st = service.getState();
         if (st.isPlaying) {
@@ -636,8 +675,12 @@ export const usePitchShiftAudio = ({
         return;
       }
 
-      const masterPos = youtubeMasterClock.getLivePosition();
-      const rate = youtubeMasterClock.getRate();
+      const masterPos = masterAdvancing
+        ? youtubeMasterClock.getLivePosition()
+        : (htmlAudio ? htmlAudio.currentTime : currentTimeRef.current);
+      const rate = masterAdvancing
+        ? youtubeMasterClock.getRate()
+        : (htmlAudio?.playbackRate || playbackRateRef.current);
       const serviceState = service.getState();
 
       if (!serviceState.isPlaying) {

@@ -30,7 +30,7 @@ from utils.logging import log_info, log_error, log_debug
 from utils.import_utils import lazy_import_librosa
 from utils.model_utils import (
     check_spleeter_availability, check_beat_transformer_availability,
-    check_chord_cnn_lstm_availability, check_genius_availability,
+    check_chord_cnn_lstm_availability,
     check_btc_availability
 )
 
@@ -147,7 +147,7 @@ USE_BTC_PL = BTC_AVAILABILITY['pl_available']
 
 # Model info route moved to beats blueprint
 
-# Lyrics routes moved to lyrics blueprint
+# Lyrics routes (Genius / LRCLib) were removed in Phase 5.
 
 # Documentation routes moved to docs blueprint
 

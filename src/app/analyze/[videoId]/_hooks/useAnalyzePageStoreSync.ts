@@ -116,7 +116,7 @@ export function useAnalyzePageStoreSync({
   useEffect(() => {
     const uiStore = useUIStore.getState();
     const noteName = keySignature ? keySignature.split(' ')[0] : 'C';
-    const isFirebaseAudioAvailable = !!audioProcessingState.audioUrl;
+    const isLocalAudioAvailable = !!audioProcessingState.audioUrl;
 
     if (uiStore.videoTitle !== videoTitle) {
       uiStore.setVideoTitle(videoTitle);
@@ -133,8 +133,8 @@ export function useAnalyzePageStoreSync({
     if (uiStore.originalKey !== noteName) {
       uiStore.initializeOriginalKey(noteName);
     }
-    if (uiStore.isFirebaseAudioAvailable !== isFirebaseAudioAvailable) {
-      uiStore.initializeFirebaseAudioAvailable(isFirebaseAudioAvailable);
+    if (uiStore.isLocalAudioAvailable !== isLocalAudioAvailable) {
+      uiStore.initializeLocalAudioAvailable(isLocalAudioAvailable);
     }
   }, [
     audioProcessingState.audioUrl,

@@ -4,6 +4,7 @@ import React, { useState, FormEvent, useEffect, useRef, useCallback } from 'reac
 import Link from 'next/link';
 import { HiUpload } from 'react-icons/hi';
 import { Tooltip } from '@heroui/react';
+import { SEARCH_AVAILABLE, SEARCH_UNAVAILABLE_MESSAGE } from '@/utils/localCapabilities';
 
 interface YouTubeSearchResult {
   id: string;
@@ -104,6 +105,29 @@ const IntegratedSearchContainer: React.FC<IntegratedSearchContainerProps> = ({
   // Get currently visible results
   const displayedResults = searchResults.slice(0, visibleResults);
   const hasMoreResults = visibleResults < searchResults.length;
+
+  // YouTube search was dropped with the rest of the cloud pipeline (FEATURE_SCOPE
+  // items 1-2). Keep the local-upload call to action, drop the box that could
+  // only ever answer "YouTube search is not available in the local-only build".
+  if (!SEARCH_AVAILABLE) {
+    return (
+      <div ref={containerRef} className="w-full">
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
+          <Link
+            href="/analyze"
+            className="font-medium py-3 px-6 rounded-lg transition-all duration-200 whitespace-nowrap flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90 shadow-sm"
+            aria-label="Upload audio file"
+          >
+            <HiUpload className="w-4 h-4" />
+            Upload an audio file
+          </Link>
+          <p className="text-sm text-gray-600 dark:text-gray-300 text-center sm:text-left">
+            {SEARCH_UNAVAILABLE_MESSAGE}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="w-full">

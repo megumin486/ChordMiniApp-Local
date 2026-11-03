@@ -26,6 +26,18 @@ export function buildAudioProxyUrl(
   audioUrl: string,
   options: BuildAudioProxyUrlOptions = {},
 ): string {
+  // Same-origin local paths pass through; never wrap them in another proxy.
+  //
+  // Locally audio comes from `/api/audio/<audioId>` (same-origin proxy for the
+  // Flask content-addressed store); it is already same-origin with no CORS
+  // issue, while `/api/proxy-audio` **does not exist** in this repository, so
+  // wrapping yields a 404. The old code only checked for `blob:`, so after
+  // "open last analysis" made `audioUrl` become `/api/audio/<id>`, pitch shift
+  // and duration probing failed silently.
+  if (audioUrl.startsWith('/api/') || audioUrl.startsWith('data:')) {
+    return audioUrl;
+  }
+
   const queryParts = [`url=${encodeAudioProxySourceUrl(audioUrl)}`];
 
   if (options.videoId) {

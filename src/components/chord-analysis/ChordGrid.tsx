@@ -86,6 +86,7 @@ interface ChordGridProps {
   // currentBeatIndex removed: BeatHighlighter subscribes directly to store
   timeSignature?: number; // Time signature (beats per measure), defaults to 4
   keySignature?: string; // Key signature (e.g., 'C Major')
+  keySections?: string[]; // Segment keys in order; >1 entry means the song modulates mid-way
   isDetectingKey?: boolean; // Whether key detection is in progress
   isChatbotOpen?: boolean; // Whether the chatbot panel is open
   isLyricsPanelOpen?: boolean; // Whether the embedded lyrics grid is open
@@ -180,6 +181,7 @@ const areChordGridPropsEqual = (
   // Layout props
   if (prevProps.timeSignature !== nextProps.timeSignature) return false;
   if (prevProps.keySignature !== nextProps.keySignature) return false;
+  if (prevProps.keySections !== nextProps.keySections) return false;
   if (prevProps.isDetectingKey !== nextProps.isDetectingKey) return false;
   if (prevProps.isChatbotOpen !== nextProps.isChatbotOpen) return false;
   if (prevProps.isLyricsPanelOpen !== nextProps.isLyricsPanelOpen) return false;
@@ -227,6 +229,7 @@ const ChordGrid: React.FC<ChordGridProps> = React.memo(({
 
   timeSignature = 4,
   keySignature,
+  keySections,
   isDetectingKey = false,
   isChatbotOpen = false,
   isLyricsPanelOpen = false,
@@ -316,7 +319,7 @@ const ChordGrid: React.FC<ChordGridProps> = React.memo(({
   );
 
   // Compute a global accidental preference for consistent rendering.
-  // The detected key signature is the most authoritative source (from Gemini
+  // The detected key signature is the most authoritative source (from the local
   // key-detection).  Fall back to the heuristic (count sharps vs flats in
   // chord labels) only when no key is available.
   const accidentalPreference = useMemo(() => {
@@ -782,7 +785,15 @@ const ChordGrid: React.FC<ChordGridProps> = React.memo(({
       chordsForMapping.length,
       originalShiftedChords,
       romanNumeralData,
-      sequenceCorrections
+      sequenceCorrections,
+      {
+        source: originalChordsForRomanNumerals ? 'originalChordsForRomanNumerals' : 'chords',
+        hasPadding,
+        paddingCount,
+        shiftCount,
+        gridBeats: chords.length,
+        mappingBeats: chordsForMapping.length,
+      }
     );
   }, [chords, shiftedChords, romanNumeralData, sequenceCorrections, originalChordsForRomanNumerals, hasPadding, actualBeatsPerMeasure, shiftCount]);
 
@@ -1232,6 +1243,7 @@ const ChordGrid: React.FC<ChordGridProps> = React.memo(({
             timeSignature={displayedTimeSignature}
             timeSignatureLabel={timeSignatureLabel}
             keySignature={keySignature}
+            keyChain={keySections}
             isDetectingKey={isDetectingKey}
             hasPickupBeats={hasPickupBeats}
             pickupBeatsCount={pickupBeatsCount}

@@ -261,7 +261,7 @@ export async function waitForUrlAccessibility(
  * @param url The URL to check
  * @returns True if it's a Firebase Storage URL
  */
-export function isFirebaseStorageUrl(url: string): boolean {
+export function isCloudStorageUrl(url: string): boolean {
   try {
     const parsedUrl = new URL(url);
     return isHostnameAllowed(parsedUrl.hostname, [
@@ -279,5 +279,5 @@ export function isFirebaseStorageUrl(url: string): boolean {
  * @returns True if it's a direct/external URL
  */
 export function isDirectUrl(url: string): boolean {
-  return !isFirebaseStorageUrl(url);
+  return !isCloudStorageUrl(url);
 }

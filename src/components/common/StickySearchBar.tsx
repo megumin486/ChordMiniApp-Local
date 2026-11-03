@@ -5,6 +5,7 @@ import { HiUpload } from 'react-icons/hi';
 import Link from 'next/link';
 import { useSharedSearchState } from '@/hooks/search/useSharedSearchState';
 import { useTheme } from '@/contexts/ThemeContext';
+import { SEARCH_AVAILABLE } from '@/utils/localCapabilities';
 
 interface StickySearchBarProps {
   isVisible: boolean;
@@ -51,6 +52,31 @@ const StickySearchBar: React.FC<StickySearchBarProps> = ({
   }, [searchResults, isSearching, searchError, searchQuery]);
 
 
+
+  // YouTube search is gone in the local-only build (FEATURE_SCOPE items 1-2).
+  // The nav bar keeps the local-upload entry instead of a box that can only fail.
+  if (!SEARCH_AVAILABLE) {
+    if (!showUpload) return null;
+
+    return (
+      <div
+        className={`sticky-search-bar transition-all duration-300 ease-in-out relative ${
+          isVisible
+            ? 'opacity-100 translate-y-0 pointer-events-auto'
+            : 'opacity-0 -translate-y-2 pointer-events-none'
+        } ${className}`}
+      >
+        <Link
+          href="/analyze"
+          className="font-medium py-1 xl:py-1.5 px-2 xl:px-3 rounded-lg transition-all duration-200 whitespace-nowrap flex items-center gap-1 text-xs xl:text-sm xl:gap-2 bg-default-100 dark:bg-gray-800/40 border border-default-300 dark:border-gray-700 text-foreground hover:bg-default-200 dark:hover:bg-gray-700/50"
+          aria-label="Upload audio file"
+        >
+          <HiUpload className="w-3 h-3 xl:w-4 xl:h-4" />
+          <span>Upload</span>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div

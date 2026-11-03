@@ -34,22 +34,13 @@ const HeroUIChordModelSelector = dynamic(() => import('@/components/analysis/Her
 });
 
 
-// Lyrics section (dynamic)
-const LyricsSectionDyn = dynamic(() => import('@/components/lyrics/LyricsSection').then(mod => ({ default: mod.LyricsSection })), {
-  loading: () => <div className="w-full h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
-  ssr: false
-});
-
 const ProcessingStatusBanner = dynamic(() => import('@/components/analysis/ProcessingStatusBanner'), {
   loading: () => <ProcessingStatusSkeleton />,
   ssr: true
 });
 
-// Chatbot interface (dynamic)
-const ChatbotInterfaceDyn = dynamic(() => import('@/components/chatbot/ChatbotInterface'), {
-  loading: () => <div className="w-full h-96 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
-  ssr: false
-});
+// Chatbot interface removed: required Gemini, unavailable in the local-only
+// build (FEATURE_SCOPE item 17).
 
 
 
@@ -72,6 +63,8 @@ const PianoVisualizerTab = dynamic(() => import('@/components/piano-visualizer/P
 
 import { useProcessing } from '@/contexts/ProcessingContext';
 import BeatTimeline from '@/components/analysis/BeatTimeline';
+import KeySignatureSync from '@/components/analysis/KeySignatureSync';
+import LocalCachePanel from '@/components/analysis/LocalCachePanel';
 import { simplifyChordArray } from '@/utils/chordSimplification';
 import { useUIStore, useIsLoopEnabled, useLoopStartBeat, useLoopEndBeat, useIsPitchShiftEnabled, useIsPitchShiftReady } from '@/stores/uiStore';
 
@@ -94,15 +87,21 @@ import { usePlaybackStore, useCurrentBeatIndex } from '@/stores/playbackStore';
 import { usePitchShiftAudio } from '@/hooks/chord-playback/usePitchShiftAudio';
 import ResultsTabs from '@/components/homepage/ResultsTabs';
 import type { TabKey } from '@/components/homepage/ResultsTabs';
-import { searchLyricsWithFallback } from '@/services/lyrics/lyricsService';
 import type { LyricsData } from '@/types/musicAiTypes';
 import { requestSheetSageTranscription } from '@/services/sheetsage/sheetSageTranscriptionClient';
 import { useSheetSageBackendAvailability } from '@/hooks/sheetsage/useSheetSageBackendAvailability';
 import { getSafeBeatModel, getSafeChordModel } from '@/utils/modelFiltering';
 import { MAX_ANALYSIS_DURATION_MINUTES, getAnalysisDurationLimitReason } from '@/utils/analysisDurationLimit';
+import { buildAnalysisResultFromCache } from '@/services/cache/restoredAnalysis';
 import MelodyTranscriptionStatusToast from '@/components/analysis/MelodyTranscriptionStatusToast';
+import type { PromptExportInput } from '@/utils/promptExport';
 
 export default function LocalAudioAnalyzePage() {
+  // Sheet Sage melody transcription is kept for parity with the upstream
+  // project (FEATURE_SCOPE item 24). The local Sheet Sage service (expected at
+  // http://localhost:8082) is not configured on this machine, so the backend
+  // probe reports unavailable and the dock toggle renders disabled with the
+  // reason it returns. Enabling it needs no code change — only the service.
   const showSheetSage = true;
   useSheetSageBackendAvailability(showSheetSage);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -110,8 +109,6 @@ export default function LocalAudioAnalyzePage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [lyricSearchTitle, setLyricSearchTitle] = useState('');
-  const [lyricSearchArtist, setLyricSearchArtist] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const durationLimitToastShownRef = useRef(false);
@@ -161,49 +158,6 @@ export default function LocalAudioAnalyzePage() {
       }
     };
   }, []);
-
-  type LyricsAPIResp = {
-    success?: boolean;
-    synchronized_lyrics?: Array<{ time: number; text: string }>;
-    plain_lyrics?: string;
-  };
-
-  const normalizeLyricsResponse = useCallback((resp: unknown): LyricsData | null => {
-    const r = resp as LyricsAPIResp | null | undefined;
-    if (!r || r.success === false) return null;
-    if (Array.isArray(r.synchronized_lyrics) && r.synchronized_lyrics.length) {
-      const lines = r.synchronized_lyrics.map((l: { time: number; text: string }, idx: number, arr: Array<{ time: number; text: string }>) => {
-        const start = typeof l.time === 'number' ? l.time : 0;
-        const next = arr[idx + 1]?.time;
-        const end = typeof next === 'number' && next > start ? next : start + 2;
-        return { startTime: start, endTime: end, text: l.text };
-      });
-      return { lines };
-    }
-    if (typeof r.plain_lyrics === 'string' && r.plain_lyrics.trim().length) {
-      const parts = r.plain_lyrics.split(/\r?\n/).filter((t: string) => t.trim().length);
-      const lines = parts.map((text: string, idx: number) => ({
-        startTime: idx * 2,
-        endTime: idx * 2 + 2,
-        text,
-      }));
-      return { lines };
-    }
-    return null;
-  }, []);
-
-  const handleManualLyricsSearch = useCallback(async () => {
-    try {
-      const resp = await searchLyricsWithFallback({ artist: lyricSearchArtist.trim(), title: lyricSearchTitle.trim(), prefer_synchronized: true });
-      const normalized = normalizeLyricsResponse(resp);
-      if (normalized) {
-        completeLyricsTranscription(normalized);
-      }
-    } catch (e) {
-      console.error('Manual lyrics search failed', e);
-    }
-  }, [lyricSearchArtist, lyricSearchTitle, normalizeLyricsResponse, completeLyricsTranscription]);
-
 
   // Use processing context
   const {
@@ -417,7 +371,6 @@ export default function LocalAudioAnalyzePage() {
   }, []);
 
   const toggleFollowMode = () => setIsFollowModeEnabled(prev => !prev);
-  const toggleLyricsPanel = () => setIsLyricsPanelOpen(prev => !prev);
   const toggleChatbot = () => setIsChatbotOpen(prev => !prev);
 
 
@@ -455,6 +408,12 @@ export default function LocalAudioAnalyzePage() {
   const [sequenceCorrections, setSequenceCorrections] = useState<
     KeyDetectionResult['sequenceCorrections'] | null
   >(null);
+  // Item 27 (AI prompt export) needs the Roman numerals and key confidence.
+  // Roman numerals normally live in the zustand store, but the store can be
+  // overwritten by other pages, so keep a page-local copy here.
+  const [romanNumerals, setRomanNumerals] = useState<KeyDetectionResult['romanNumerals']>(null);
+  const [keyConfidence, setKeyConfidence] = useState<number | null>(null);
+  const [keyModulations, setKeyModulations] = useState<KeyDetectionResult['modulations']>([]);
 
   // Get state from Zustand stores (only what's actually used in this page)
 
@@ -528,7 +487,7 @@ export default function LocalAudioAnalyzePage() {
   usePitchShiftAudio({
     youtubePlayer: null, // No YouTube player in upload page
     audioRef,
-    firebaseAudioUrl: audioProcessingState.audioUrl,
+    localAudioUrl: audioProcessingState.audioUrl,
     isPlaying,
     currentTime,
     playbackRate,
@@ -593,6 +552,108 @@ export default function LocalAudioAnalyzePage() {
       audioRef.current.load();
     }
   };
+
+  /**
+   * Reopens an analysis from the local cache ("open last analysis").
+   *
+   * No model is re-run: the backend `/api/cache/restore` returns the cached
+   * chords / beats, which are converted into an `AnalysisResult` here while the
+   * audio points at the same-origin `/api/audio/<id>`, so a page refresh or a
+   * reopen shows the previous grid immediately.
+   */
+  const openCachedAnalysis = useCallback(async (audioId: string) => {
+    setAudioProcessingState(prev => ({
+      ...prev,
+      error: null,
+      isExtracting: false,
+      isAnalyzing: false,
+      isAnalyzed: false,
+    }));
+
+    const response = await fetch(
+      `/api/local-cache/restore?audioId=${encodeURIComponent(audioId)}`,
+      { cache: 'no-store' },
+    );
+
+    if (!response.ok) {
+      const message = response.status === 404
+        ? 'The cached data for this audio is incomplete. Please analyze it again.'
+        : 'Could not open the cached analysis.';
+      addToast({
+        title: 'Cached Results Unavailable',
+        description: message,
+        color: 'default',
+        timeout: 5000,
+        shouldShowTimeoutProgress: true,
+        classNames: mergeToastClassNames({
+          icon: 'text-warning-500',
+          title: 'text-warning-600 dark:text-warning-400',
+        }),
+      });
+      return;
+    }
+
+    const restored = await response.json();
+    const rebuilt = buildAnalysisResultFromCache(restored);
+
+    if (!rebuilt) {
+      addToast({
+        title: 'Cached Results Incomplete',
+        description: 'The cache is missing chord or beat data. Please analyze it again.',
+        color: 'default',
+        timeout: 5000,
+        shouldShowTimeoutProgress: true,
+        classNames: mergeToastClassNames({
+          icon: 'text-warning-500',
+          title: 'text-warning-600 dark:text-warning-400',
+        }),
+      });
+      return;
+    }
+
+    // Audio goes through the same-origin proxy route, so the browser never needs the backend port
+    if (audioRef.current) {
+      audioRef.current.src = restored.audioUrl;
+      audioRef.current.load();
+    }
+
+    setAnalysisResults(rebuilt);
+    setKeyDetectionAttempted(false);
+    setSequenceCorrections(null);
+    setRomanNumerals(null);
+    setKeyConfidence(null);
+    setKeyModulations([]);
+    setAudioFile(null);
+    if (typeof restored.duration === 'number' && restored.duration > 0) {
+      setDuration(restored.duration);
+    }
+    setAudioProcessingState(prev => ({
+      ...prev,
+      audioUrl: restored.audioUrl,
+      isExtracted: true,
+      isExtracting: false,
+      isAnalyzing: false,
+      isAnalyzed: true,
+      error: null,
+    }));
+    setStage('complete');
+    setProgress(100);
+    setStatusMessage('Loaded from local cache');
+    // Same copy and styling as the original project's "Analysis Complete" toast (ProcessingStatusBanner:190)
+    addToast({
+      title: 'Analysis Complete',
+      description: `Beat and chord analysis completed in 00:00.00 · Results Cache${
+        restored.filename ? ` · ${restored.filename}` : ''
+      }`,
+      color: 'default',
+      timeout: 5000,
+      shouldShowTimeoutProgress: true,
+      classNames: mergeToastClassNames({
+        icon: 'text-success-500',
+        title: 'text-success-600 dark:text-success-400',
+      }),
+    });
+  }, []);
 
   // Process and analyze the audio file
   const processAudioFile = async () => {
@@ -860,8 +921,11 @@ export default function LocalAudioAnalyzePage() {
 
       // Import and call key detection service with enharmonic correction and Roman numerals
       import('@/services/audio/keyDetectionService').then(({ detectKey }) => {
-        // Use cache for sequence corrections (no bypass); request Roman numerals
-        detectKey(chordData, true, false, true)
+        // Use cache for sequence corrections (no bypass); request Roman numerals.
+        // The 5th argument is the content-addressed id in the local audio store:
+        // the backend uses it to run its madmom key CNN on the audio itself for
+        // key and section detection (far more robust than reading chord symbols).
+        detectKey(chordData, true, false, true, analysisResults.audioId)
           .then(result => {
             setKeySignature(
               result.primaryKey && result.primaryKey !== 'Unknown'
@@ -869,6 +933,13 @@ export default function LocalAudioAnalyzePage() {
                 : heuristicKeySignature
             );
             setSequenceCorrections(result.sequenceCorrections ?? null);
+            setRomanNumerals(result.romanNumerals ?? null);
+            setKeyConfidence(
+              typeof result.keyConfidence === 'number' && Number.isFinite(result.keyConfidence)
+                ? result.keyConfidence
+                : null
+            );
+            setKeyModulations(result.modulations ?? []);
             // Update Roman numeral data in UI store for display
             try {
               useUIStore.getState().updateRomanNumeralData(result.romanNumerals ?? null);
@@ -877,6 +948,9 @@ export default function LocalAudioAnalyzePage() {
           .catch(error => {
             console.error('Failed to detect key:', error);
             setSequenceCorrections(null);
+            setRomanNumerals(null);
+            setKeyConfidence(null);
+            setKeyModulations([]);
             try { useUIStore.getState().updateRomanNumeralData(null); } catch {}
           })
           .finally(() => {
@@ -896,6 +970,56 @@ const simplifiedChordGridData = useMemo(() => {
   }
   return { ...chordGridData, chords: processedChords } as typeof chordGridData;
 }, [chordGridData, simplifyChords]);
+
+  /**
+   * Input for item 27 (AI prompt export).
+   *
+   * The chord array is the UNSIMPLIFIED `chordGridData.chords`, i.e. the same
+   * one feeding the Roman numeral mapping (`originalChordsForRomanNumerals`);
+   * the simplify toggle only affects display.
+   * Beat times come from `originalAudioMapping`, which already carries the
+   * padding/shift audio alignment, falling back to `analysisResults.beats`.
+   */
+  const promptExportInput = useMemo<PromptExportInput | null>(() => {
+    if (!analysisResults || !chordGridData) return null;
+    const gridChords = chordGridData.chords ?? [];
+    if (gridChords.length === 0) return null;
+
+    const mapping = chordGridData.originalAudioMapping ?? [];
+    const beats: Array<number | null> = mapping.length === gridChords.length
+      ? mapping.map((item) => item.timestamp)
+      : (analysisResults.beats ?? []).map((beat) =>
+          typeof beat === 'number' ? beat : beat?.time ?? null
+        );
+
+    return {
+      trackName: audioFile?.name ?? null,
+      durationSeconds: duration || analysisResults.audioDuration || null,
+      bpm: analysisResults.beatDetectionResult?.bpm ?? null,
+      timeSignature: analysisResults.beatDetectionResult?.time_signature ?? 4,
+      keySignature,
+      keyConfidence,
+      chords: gridChords,
+      beats,
+      hasPadding: chordGridData.hasPadding,
+      paddingCount: chordGridData.paddingCount,
+      shiftCount: chordGridData.shiftCount,
+      romanNumerals: romanNumerals ?? null,
+      modulations: keyModulations ?? [],
+      chordModel: analysisResults.chordModel ?? null,
+      beatModel: analysisResults.beatModel ?? null,
+      engine: 'music21 + harte-library + madmom-key-cnn',
+    };
+  }, [
+    analysisResults,
+    chordGridData,
+    audioFile?.name,
+    duration,
+    keySignature,
+    keyConfidence,
+    romanNumerals,
+    keyModulations,
+  ]);
 
   // Beat animation tracking for HTML audio elements
   useEffect(() => {
@@ -1043,7 +1167,7 @@ const simplifiedChordGridData = useMemo(() => {
   // Inform UI store about original audio availability (enables pitch shift/UI)
   useEffect(() => {
     try {
-      useUIStore.getState().initializeFirebaseAudioAvailable(Boolean(audioRef.current || audioProcessingState.audioUrl));
+      useUIStore.getState().initializeLocalAudioAvailable(Boolean(audioRef.current || audioProcessingState.audioUrl));
     } catch {}
   }, [audioProcessingState.audioUrl]);
 
@@ -1209,6 +1333,9 @@ const simplifiedChordGridData = useMemo(() => {
                 </div>
               )}
 
+              {/* Local cache (local replacement for Firestore): stays visible as an empty state after clearing */}
+              {!analysisResults && <LocalCachePanel onOpenAnalysis={openCachedAnalysis} />}
+
               {/* Audio Analysis Status Indicator - Hide when analysis is complete */}
               {!analysisResults && (
                 <div className="flex items-center justify-end text-sm mb-4">
@@ -1261,9 +1388,19 @@ const simplifiedChordGridData = useMemo(() => {
                         <div className={`flex flex-col md:flex-row gap-4`}>
                           {/* Grid area */}
                           <div className={`w-full transition-all duration-200`}>
+                            {/* Keeps the store's originalKey/targetKey in sync with
+                                the detected key. Without this, enabling pitch shift
+                                on the local-upload page displayed the store default
+                                key ("C") instead of the detected key, because the
+                                only other mount point is the [videoId] page. */}
+                            <KeySignatureSync keySignature={keySignature} />
                             <ChordGridContainer
                               analysisResults={analysisResults}
                               chordGridData={simplifiedChordGridData}
+                              // Roman numeral mapping must follow the stable,
+                              // un-simplified sequence: the simplify toggle only
+                              // rewrites chordGridData.chords for display.
+                              originalChordsForRomanNumerals={chordGridData?.chords}
                               keySignature={keySignature}
                               isDetectingKey={isDetectingKey}
                               isChatbotOpen={isChatbotOpen}
@@ -1285,57 +1422,6 @@ const simplifiedChordGridData = useMemo(() => {
                             </div>
                           </div>
 
-                          {/* Side panel area (md+) - disabled on upload page */}
-                          {false && (
-                            <div className="hidden md:block md:w-2/5">
-                              {/* Lyrics Panel with manual search */}
-                              {isLyricsPanelOpen && (
-                                <div className="space-y-3">
-                                  <div className="flex gap-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Song title"
-                                      value={lyricSearchTitle}
-                                      onChange={(e) => setLyricSearchTitle(e.target.value)}
-                                      className="flex-1 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                                    />
-                                    <input
-                                      type="text"
-                                      placeholder="Artist"
-                                      value={lyricSearchArtist}
-                                      onChange={(e) => setLyricSearchArtist(e.target.value)}
-                                      className="flex-1 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                                    />
-                                    <Button color="primary" variant="solid" onPress={handleManualLyricsSearch}>Search</Button>
-                                  </div>
-                                  <LyricsSectionDyn
-                                    showLyrics={isLyricsPanelOpen}
-                                    lyrics={lyrics}
-                                    hasCachedLyrics={false}
-                                    currentTime={currentTime}
-                                    fontSize={fontSize}
-                                    theme={theme}
-                                    analysisResults={analysisResults}
-                                    onFontSizeChange={setFontSize}
-                                    segmentationData={segmentationData}
-                                  />
-                                </div>
-                              )}
-
-                              {/* Chatbot Panel */}
-                              {isChatbotOpen && (
-                                <div className="mt-4">
-                                  <ChatbotInterfaceDyn
-                                    isOpen={isChatbotOpen}
-                                    onClose={() => setIsChatbotOpen(false)}
-                                    songContext={uploadSongContext}
-                                    className=""
-                                    embedded={false}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          )}
                         </div>
                       </ScrollableTabContainer>
                     )}
@@ -1413,7 +1499,6 @@ const simplifiedChordGridData = useMemo(() => {
                           isChatbotOpen={isChatbotOpen}
                           isLyricsPanelOpen={isLyricsPanelOpen}
                           toggleChatbot={toggleChatbot}
-                          toggleLyricsPanel={toggleLyricsPanel}
                           segmentation={{
                             isVisible: showSegmentation && !!segmentationData,
                             hasData: !!segmentationData,
@@ -1429,6 +1514,10 @@ const simplifiedChordGridData = useMemo(() => {
                           }}
                           totalBeats={simplifiedChordGridData?.beats?.length || 0}
                           isUploadPage={true}
+                          promptExport={promptExportInput ? {
+                            input: promptExportInput,
+                            trackName: audioFile?.name ?? null,
+                          } : undefined}
                         />
                       </div>
                     </div>
@@ -1482,6 +1571,7 @@ const simplifiedChordGridData = useMemo(() => {
 
 
       </div>
+
     </div>
   );
 }

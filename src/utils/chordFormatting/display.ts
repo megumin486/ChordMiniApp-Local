@@ -71,9 +71,13 @@ export const formatRomanNumeral = (romanNumeral: string): React.ReactElement | s
   if (!romanNumeral) return '';
 
   // Handle figure bass notation (e.g., "I64", "ii6", "V7")
-  const figureMatch = romanNumeral.match(/^([ivxIVX]+)(.*)$/);
+  // Allow a leading accidental (borrowed chords such as "#V" or "bII"): the old
+  // regex did not recognise them and emitted the raw string, so "#IV6" lost its
+  // figured-bass layout.
+  const figureMatch = romanNumeral.match(/^([#b♯♭]?)([ivxIVX]+)(.*)$/);
   if (figureMatch) {
-    const [, baseRoman, figures] = figureMatch;
+    const [, accidental, romanCore, figures] = figureMatch;
+    const baseRoman = `${accidental}${romanCore}`;
 
     if (figures) {
       // Handle different figure bass patterns
@@ -139,6 +143,38 @@ export const formatRomanNumeral = (romanNumeral: string): React.ReactElement | s
           }, [
             React.createElement('span', { key: '4' }, '4'),
             React.createElement('span', { key: '3' }, '3')
+          ])
+        ]);
+      } else if (figures === '65' || figures === '42') {
+        // Figured bass for seventh-chord inversions (65 / 42), stacked like 64 / 43
+        return React.createElement('span', {
+          style: { position: 'relative', display: 'inline-block' }
+        }, [
+          baseRoman,
+          React.createElement('span', {
+            key: 'figures',
+            style: {
+              position: 'absolute',
+              left: '100%',
+              top: '-0.5em',
+              fontSize: '0.7em',
+              lineHeight: '1',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              marginLeft: '1px',
+              fontWeight: 'normal',
+              zIndex: 10
+            }
+          }, [
+            React.createElement('span', {
+              key: 'upper',
+              style: { display: 'block', textAlign: 'center' }
+            }, figures.charAt(0)),
+            React.createElement('span', {
+              key: 'lower',
+              style: { display: 'block', marginTop: '-0.15em', textAlign: 'center' }
+            }, figures.charAt(1))
           ])
         ]);
       } else if (figures === '6') {

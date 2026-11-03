@@ -68,7 +68,12 @@ const ProcessingStatusBanner: React.FC<ProcessingStatusBannerProps> = React.memo
   const audioDurationRef = useRef<number | null>(null);
   const durationFetchedRef = useRef(false);
 
-  // Detect audio duration when processing starts
+  // Detect audio duration when processing starts.
+  //
+  // Local-only build: uploaded audio is a browser `blob:` URL, which the
+  // server cannot fetch (it returned 403). Duration detection over HTTP is
+  // therefore skipped for blob URLs — the banner falls back to its default
+  // estimate, which only affects the progress animation, never the analysis.
   useEffect(() => {
     if (
       (stage === 'beat-detection' || stage === 'chord-recognition') &&
@@ -76,6 +81,13 @@ const ProcessingStatusBanner: React.FC<ProcessingStatusBannerProps> = React.memo
       audioUrl
     ) {
       durationFetchedRef.current = true;
+
+      const isBrowserBlob = audioUrl.startsWith('blob:');
+      if (isBrowserBlob) {
+        audioDurationRef.current = FALLBACK_DURATION;
+        return;
+      }
+
       getAudioDurationFromUrl(audioUrl, videoId)
         .then((d) => { audioDurationRef.current = d; })
         .catch(() => { audioDurationRef.current = FALLBACK_DURATION; });

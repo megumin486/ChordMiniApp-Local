@@ -14,7 +14,7 @@ import { YouTubePlayer } from '@/types/youtube';
 interface PitchShiftAudioManagerProps {
   youtubePlayer: YouTubePlayer | null;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  firebaseAudioUrl: string | null;
+  localAudioUrl: string | null;
   isPlaying: boolean;
   currentTime: number;
   playbackRate: number;

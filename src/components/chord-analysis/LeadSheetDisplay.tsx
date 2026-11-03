@@ -8,7 +8,6 @@
 
 import React, { useEffect, useRef, useMemo } from 'react';
 
-import { useApiKeys } from '@/hooks/settings/useApiKeys';
 import { useProcessedLyrics } from '@/hooks/lyrics/useProcessedLyrics';
 import { useActiveLine } from '@/hooks/lyrics/useActiveLine';
 import { useTranslation } from '@/hooks/lyrics/useTranslation';
@@ -72,9 +71,6 @@ const LeadSheetDisplay: React.FC<LeadSheetProps> = React.memo(({
   // Ref for the container element (used for auto-scrolling)
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // API keys hook for accessing user's Gemini API key
-  const { getApiKey } = useApiKeys();
-
   // Memoize chords array to prevent unnecessary re-renders
   const memoizedChords = useMemo(() => chords || [], [chords]);
 
@@ -110,8 +106,7 @@ const LeadSheetDisplay: React.FC<LeadSheetProps> = React.memo(({
     setSelectedLanguages,
     setIsLanguageMenuOpen
   } = useTranslation({
-    processedLines: processedAndMergedLyrics,
-    getApiKey
+    processedLines: processedAndMergedLyrics
   });
 
   // Add padding elements to ensure first and last lines can be centered

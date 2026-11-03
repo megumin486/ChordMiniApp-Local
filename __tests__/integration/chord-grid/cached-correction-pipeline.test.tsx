@@ -5,9 +5,9 @@ import type { AnalysisResult } from '@/services/chord-analysis/chordRecognitionS
 import type { AudioProcessingState } from '@/services/audio/audioProcessingService';
 import { useAnalyzePageOrchestrator } from '@/hooks/analyze/useAnalyzePageOrchestrator';
 import { ChordGridContainer } from '@/components/chord-analysis/ChordGridContainer';
-import { getTranscription } from '@/services/firebase/firestoreService';
+import { getTranscription } from '@/services/storage/localAnalysisStore';
 
-jest.mock('@/services/firebase/firestoreService', () => ({
+jest.mock('@/services/storage/localAnalysisStore', () => ({
   getTranscription: jest.fn(),
   updateTranscriptionEnrichment: jest.fn(),
 }));

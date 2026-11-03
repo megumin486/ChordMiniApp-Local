@@ -26,29 +26,28 @@ export const BACKEND_URLS = {
 } as const;
 
 // Endpoint routing configuration
+// Only endpoints that still exist in the local-only build are listed here.
+// Removed: audio extraction / YouTube search / lyrics / chatbot / key
+// validation / Sheet Sage / segmentation (see FEATURE_SCOPE).
 export const API_ROUTES = {
-  // Audio extraction - browser/local strategy with server-side cache/finalization.
-  EXTRACT_AUDIO: '/api/extract-audio',
-
-  // YouTube search - client-side only (no backend)
-  SEARCH_YOUTUBE: '/api/search-youtube',
-
-  // ML services - proxy to Python backend
+  // ML services - proxy to the local Python backend
   RECOGNIZE_CHORDS: '/api/recognize-chords',
   RECOGNIZE_CHORDS_BTC_PL: '/api/recognize-chords-btc-pl',
   RECOGNIZE_CHORDS_BTC_SL: '/api/recognize-chords-btc-sl',
-
-  // Other services - remain on Vercel frontend
-  TRANSCRIBE_LYRICS: '/api/transcribe-lyrics',
-  TRANSLATE_LYRICS: '/api/translate-lyrics',
-  TRANSLATE_LYRICS_CACHED: '/api/translate-lyrics-cached',
+  DETECT_BEATS: '/api/detect-beats',
   DETECT_KEY: '/api/detect-key',
-  VALIDATE_GEMINI_KEY: '/api/validate-gemini-key',
-  VALIDATE_MUSIC_AI_KEY: '/api/validate-music-ai-key',
-  CHATBOT: '/api/chatbot',
+  ANALYZE_HARMONY: '/api/analyze-harmony',
+
+  // Local metadata
   MODEL_INFO: '/api/model-info',
   DOCS: '/api/docs',
-  TRANSCRIBE_SHEETSAGE: '/api/transcribe-sheetsage',
+
+  // Legacy endpoints that no longer have a route handler in the local-only
+  // build. Kept as path constants so call sites still type-check; the
+  // corresponding features (YouTube search / audio extraction) are disabled
+  // at the service layer, which never reaches these paths.
+  LEGACY_SEARCH_YOUTUBE: '/api/search-youtube',
+  LEGACY_EXTRACT_AUDIO: '/api/extract-audio',
 } as const;
 
 /**

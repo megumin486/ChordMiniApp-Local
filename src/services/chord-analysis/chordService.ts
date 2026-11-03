@@ -11,12 +11,22 @@ import { offloadUploadService } from '@/services/storage/offloadUploadService';
 import type { ChordDetectorType, ChordDetectionResult, ChordRecognitionBackendResponse } from '@/types/audioAnalysis';
 
 /**
+ * Optional metadata sink: the backend returns the content-addressed audioId of the
+ * ingested upload (Phase 3 local cache). Callers that later ask for harmony analysis
+ * can forward it so the engine can verify the key against the audio itself.
+ */
+export interface ChordRecognitionMeta {
+  audioId?: string;
+}
+
+/**
  * Recognize chords from a File with rate limiting.
  * Local development uses this direct multipart path.
  */
 export async function recognizeChordsWithRateLimit(
   audioFile: File,
-  model: ChordDetectorType = 'chord-cnn-lstm'
+  model: ChordDetectorType = 'chord-cnn-lstm',
+  meta?: ChordRecognitionMeta
 ): Promise<ChordDetectionResult[]> {
   try {
     // Validate input file
@@ -72,6 +82,11 @@ export async function recognizeChordsWithRateLimit(
     }
     if (!data.chords || !Array.isArray(data.chords)) {
       throw new Error('Invalid chord recognition response: missing or invalid chords array');
+    }
+
+    // Content-addressed audio id: returned by the backend after it stores the upload locally (Phase 3)
+    if (meta && typeof data.audioId === 'string' && data.audioId) {
+      meta.audioId = data.audioId;
     }
 
     // Convert to ChordDetectionResult with validation

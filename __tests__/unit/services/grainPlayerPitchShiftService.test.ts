@@ -40,6 +40,7 @@ const mockFilter = {
 
 const mockLimiter = {
   toDestination: jest.fn(),
+  connect: jest.fn(),
   dispose: jest.fn(),
 };
 
@@ -52,6 +53,12 @@ jest.mock('tone', () => ({
     destination: {},
   })),
   setContext: jest.fn(),
+  Meter: jest.fn(() => ({
+    getValue: jest.fn(() => -Infinity),
+    connect: jest.fn(),
+    toDestination: jest.fn(),
+    dispose: jest.fn(),
+  })),
   GrainPlayer: jest.fn().mockImplementation((options) => {
     setTimeout(() => options.onload?.(), 0);
     return mockGrainPlayer;

@@ -71,22 +71,6 @@ def check_chord_cnn_lstm_availability():
         return False
 
 
-def check_genius_availability():
-    """
-    Check if Genius API is available.
-    
-    Returns:
-        bool: True if lyricsgenius library is available
-    """
-    try:
-        import lyricsgenius
-        log_debug("Genius API (lyricsgenius) is available")
-        return True
-    except ImportError as e:
-        log_debug(f"Genius API not available: {e}")
-        return False
-
-
 def check_btc_availability():
     """
     Check if BTC models and dependencies are available.
@@ -294,7 +278,6 @@ def get_all_model_availability():
             'spleeter': check_spleeter_availability(),
             'beat_transformer': check_beat_transformer_availability(),
             'chord_cnn_lstm': check_chord_cnn_lstm_availability(),
-            'genius': check_genius_availability(),
             'btc': check_btc_availability(),
             'pytorch': check_pytorch_availability(),
             'tensorflow': check_tensorflow_availability()

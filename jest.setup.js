@@ -151,6 +151,11 @@ jest.mock('tone', () => {
     Limiter: jest.fn(() => ({
       toDestination: jest.fn(),
       dispose: jest.fn()
+    })),
+    Meter: jest.fn(() => ({
+      getValue: jest.fn(() => -Infinity),
+      connect: jest.fn(),
+      dispose: jest.fn()
     }))
   };
 });
@@ -209,27 +214,7 @@ jest.mock('next/navigation', () => ({
   },
 }))
 
-// Mock Firebase
-jest.mock('firebase/app', () => ({
-  initializeApp: jest.fn(),
-  getApps: jest.fn(() => []),
-  getApp: jest.fn(),
-}))
-
-jest.mock('firebase/firestore', () => ({
-  getFirestore: jest.fn(),
-  collection: jest.fn(),
-  doc: jest.fn(),
-  getDoc: jest.fn(),
-  setDoc: jest.fn(),
-  updateDoc: jest.fn(),
-  deleteDoc: jest.fn(),
-  query: jest.fn(),
-  where: jest.fn(),
-  orderBy: jest.fn(),
-  limit: jest.fn(),
-  getDocs: jest.fn(),
-}))
+// Firebase/Firestore mocks removed: the local-only build has no firebase packages.
 
 // Mock HeroUI Toast & Ripple to avoid dynamic imports in test environment
 jest.mock('@heroui/toast', () => ({

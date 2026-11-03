@@ -81,7 +81,7 @@ const TAB_CONTENT = {
     features: [
       { text: 'AI-powered chord detection with multiple models (Chord-CNN-LSTM, BTC)', color: 'blue' },
       { text: 'Beat-aligned grid with automatic time signature detection', color: 'blue' },
-      { text: 'Roman numeral analysis & key detection via Gemini AI', color: 'blue' },
+      { text: 'Roman numeral analysis & key detection from the built-in harmony engine', color: 'blue' },
       { text: 'Song segmentation overlay for intro, verse, chorus, bridge, and outro', color: 'blue' },
       { text: 'Interactive click-to-seek playback navigation', color: 'blue' },
     ],
@@ -98,12 +98,12 @@ const TAB_CONTENT = {
   },
   lyrics: {
     title: 'Lead Sheet & Lyrics',
-    description: 'Synchronized lyrics with chord annotations and external-AI translation support.',
+    description: 'Synchronized lyrics with chord annotations, aligned to the detected beat grid.',
     features: [
-      { text: 'Word-level timing synchronization via Music.ai', color: 'purple' },
+      { text: 'Word-level timing synchronization with the beat grid', color: 'purple' },
       { text: 'Chords positioned precisely above corresponding words', color: 'purple' },
-      { text: 'Multi-language translation powered by Gemini AI', color: 'purple' },
-      { text: 'AI chat assistant for contextual music theory Q&A', color: 'purple' },
+      { text: 'Transpose the whole chart to any key', color: 'purple' },
+      { text: 'No external AI services — lyric data stays on this machine', color: 'purple' },
     ],
   },
   'piano-visualizer': {

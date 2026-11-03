@@ -1,16 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ThinkingLevel } from '@google/genai';
-import { getDocumentWithAdminAccess, setDocumentWithAdminAccess } from '@/services/firebase/firestoreAdminService';
+import { cacheKvGet, cacheKvSet, setAnalysisKey } from '@/services/cache/localCacheClient';
 import crypto from 'crypto';
-import { createGeminiClient, GEMINI_MODEL_NAME } from '@/config/gemini';
 import { sanitizeLegacyCorrections, sanitizeSequenceCorrections } from '@/utils/keyDetectionCorrections';
 import { estimateKeySignatureFromChords } from '@/utils/chordUtils';
 
 export const maxDuration = 240; // 4 minutes for key detection processing
 
-// Define the model name to use
-const MODEL_NAME = GEMINI_MODEL_NAME;
-const KEY_DETECTION_PROMPT_VERSION = 'v5-enharmonic-modulation-consistency';
+// Resolve the Python backend base URL. Server-only env vars, never exposed to
+// the browser. Matches the convention used by the other backend routes.
+function resolvePythonApiUrl(): string {
+  return (
+    process.env.PYTHON_API_URL ||
+    process.env.NEXT_PUBLIC_PYTHON_API_URL ||
+    'http://localhost:5001'
+  ).replace(/\/+$/, '');
+}
+
+// Key detection prompt version. Retained for cache-key compatibility so
+// existing cached entries are not invalidated; the prompt itself is no longer
+// used because the local harmony engine replaced Gemini.
+// Cache version: since v6 the response carries
+// keySource/chordKey/keyConflict/modulations, and correctedChords uses the
+// engine's equal-length array directly (old entries expire via the version).
+// v7: borrowed degrees use conventional spelling (bII/bIII/bVI/bVII, never
+// #I/#II/#v).
+const KEY_DETECTION_PROMPT_VERSION = 'v7-roman-spelling';
 
 // Define types for chord data
 interface ChordData {
@@ -42,6 +56,21 @@ interface KeyDetectionResult {
   originalChords?: string[];
   correctedChords?: string[];
   corrections?: Record<string, string>;
+  // Harmony engine v4 metadata
+  keySource?: string;
+  chordKey?: string;
+  keyConflict?: boolean;
+  // Key confidence in 0..1. The backend always had it but it was never
+  // forwarded; item 27 (prompt export) needs it (FEATURE_SCOPE 10.5 keeps
+  // unique information). Old cache entries lack the field, meaning unknown.
+  keyConfidence?: number | null;
+  modulations?: Array<{
+    fromKey: string;
+    toKey: string;
+    atIndex: number;
+    isRelative?: boolean;
+    source?: string;
+  }>;
   sequenceCorrections?: {
     originalSequence: string[];
     correctedSequence: string[];
@@ -62,6 +91,11 @@ interface KeyDetectionResult {
   romanNumerals?: {
     analysis: string[];
     keyContext: string;
+    sections?: Array<{
+      startIndex: number;
+      endIndex: number;
+      key: string;
+    }>;
     temporalShifts?: Array<{
       chordIndex: number;
       targetKey: string;
@@ -79,6 +113,11 @@ interface KeyDetectionCacheEntry {
   corrections?: Record<string, string>;
   sequenceCorrections?: KeyDetectionResult['sequenceCorrections'];
   romanNumerals?: KeyDetectionResult['romanNumerals'];
+  keyConfidence?: number | null;
+  keySource?: string;
+  chordKey?: string;
+  keyConflict?: boolean;
+  modulations?: KeyDetectionResult['modulations'];
 }
 
 function removeUndefinedFields<T>(value: T): T {
@@ -144,20 +183,25 @@ function buildHeuristicKeyDetectionResult(params: {
     corrections: includeEnharmonicCorrection ? {} : undefined,
     sequenceCorrections: null,
     romanNumerals: null,
+    // The heuristic fallback has no audio key CNN, so report null explicitly
+    // rather than inventing a number.
+    keyConfidence: null,
+    keySource: 'heuristic',
     rawResponse,
     fromHeuristicFallback: true,
   };
 }
 
-// Helper function to check cache for key detection
-// Uses REST-based admin service instead of gRPC client SDK to avoid
-// stale connection errors in containerized environments (Railway).
+// Helper function to check cache for key detection.
+// Phase 3: reads from the local SQLite cache in the Python backend instead of
+// Firestore. A cache miss and a cache outage both yield `null`, so detection
+// simply runs again.
 async function checkKeyDetectionCache(cacheKey: string): Promise<KeyDetectionCacheEntry | null> {
   try {
-    const data = await getDocumentWithAdminAccess<KeyDetectionCacheEntry>('keyDetections', cacheKey);
+    const data = await cacheKvGet<KeyDetectionCacheEntry>(`keyDetections:${cacheKey}`);
 
     if (data) {
-      console.log('Found cached key detection');
+      console.log('Found cached key detection (local SQLite cache)');
       return data;
     }
 
@@ -168,9 +212,7 @@ async function checkKeyDetectionCache(cacheKey: string): Promise<KeyDetectionCac
   }
 }
 
-// Helper function to save key detection to cache
-// Uses REST-based admin service instead of gRPC client SDK to avoid
-// stale connection errors in containerized environments (Railway).
+// Helper function to save key detection to cache (local SQLite, see above).
 async function saveKeyDetectionToCache(cacheKey: string, keyResult: KeyDetectionResult): Promise<void> {
   try {
     const cacheData: KeyDetectionCacheEntry = {
@@ -187,12 +229,30 @@ async function saveKeyDetectionToCache(cacheKey: string, keyResult: KeyDetection
       romanNumerals: keyResult.romanNumerals ? {
         analysis: keyResult.romanNumerals.analysis || [],
         keyContext: keyResult.romanNumerals.keyContext || '',
-        temporalShifts: keyResult.romanNumerals.temporalShifts || []
-      } : null
+        temporalShifts: keyResult.romanNumerals.temporalShifts || [],
+        // Section keys: modulated tracks need these to show the new key, otherwise the
+        sections: keyResult.romanNumerals.sections || []
+      } : null,
+      // Item 27 export needs: confidence, key source and modulation detail.
+      // Old entries lack these fields and read back as undefined, which the
+      // exporter treats as unknown, so KEY_DETECTION_PROMPT_VERSION is NOT
+      // bumped (bumping it would invalidate the whole cache).
+      keyConfidence: keyResult.keyConfidence ?? null,
+      keySource: keyResult.keySource,
+      chordKey: keyResult.chordKey,
+      keyConflict: keyResult.keyConflict,
+      modulations: keyResult.modulations || [],
     };
 
-    await setDocumentWithAdminAccess('keyDetections', cacheKey, JSON.parse(JSON.stringify(removeUndefinedFields(cacheData))));
-    console.log('✅ Key detection saved to cache successfully');
+    const saved = await cacheKvSet(
+      `keyDetections:${cacheKey}`,
+      JSON.parse(JSON.stringify(removeUndefinedFields(cacheData))),
+    );
+    if (saved) {
+      console.log('✅ Key detection saved to local cache');
+    } else {
+      console.warn('⚠️ Key detection was not persisted to the local cache');
+    }
   } catch (error) {
     console.error('❌ Error saving key detection to cache:', error);
     if (error instanceof Error) {
@@ -207,7 +267,9 @@ async function saveKeyDetectionToCache(cacheKey: string, keyResult: KeyDetection
 
 export async function POST(request: NextRequest) {
   try {
-    const { chords, includeEnharmonicCorrection = false, bypassCache = false, geminiApiKey, includeRomanNumerals = false } = await request.json();
+    // geminiApiKey accepted for backward compatibility with existing clients
+    // but no longer used: analysis is fully local since Phase 2.
+    const { chords, includeEnharmonicCorrection = false, bypassCache = false, includeRomanNumerals = false, audioId = null } = await request.json();
 
     // API call tracking for optimization monitoring
     console.log('🔍 [API] Key detection request:', {
@@ -261,310 +323,133 @@ export async function POST(request: NextRequest) {
         sequenceCorrections: sanitizedSequenceCorrections,
         // Include Roman numeral analysis from cache
         romanNumerals: cachedResult.romanNumerals || null,
+        // Key confidence/source/modulations only exist in cache entries written
+        // after this change; older ones read back as undefined and the exporter
+        // treats that as unknown (no cache version bump, to keep the cache).
+        keyConfidence: cachedResult.keyConfidence ?? null,
+        keySource: cachedResult.keySource,
+        chordKey: cachedResult.chordKey,
+        keyConflict: cachedResult.keyConflict,
+        modulations: cachedResult.modulations,
         fromCache: true,
       });
     } else {
-      console.log('❌ [CACHE] Cache miss - proceeding to Gemini API');
+      console.log('❌ [CACHE] Cache miss - proceeding to the local harmony engine');
     }
 
-    // Create a Gemini AI instance only after the cache lookup misses.
-    // User-provided key takes precedence over environment variable.
-    const geminiAI = createGeminiClient({
-      apiKey: geminiApiKey,
-      timeoutMs: maxDuration * 1000
-    });
-    if (!geminiAI) {
-      console.error('Gemini API key is missing');
-      return NextResponse.json(buildHeuristicKeyDetectionResult({
-        chordNames,
-        includeEnharmonicCorrection,
-      }));
-    }
+    // -----------------------------------------------------------------
+    // Local harmony engine (replaces Gemini)
+    // -----------------------------------------------------------------
+    // FEATURE_SCOPE Phase 2: key detection, Roman numerals, enharmonic
+    // correction and modulation markers are produced by the Python backend's
+    // /api/analyze-harmony endpoint (music21 + harte-library). No external
+    // service is contacted.
+    const harmonyBaseUrl = resolvePythonApiUrl();
 
-    // Format chord progression for AI analysis
-    const chordProgression = chords
-      .map((chord: ChordData, index: number) => {
-        const timestamp = chord.time ? `${chord.time.toFixed(2)}s` : `${index}`;
-        return `${timestamp}: ${chord.chord || chord}`;
-      })
-      .join(', ');
+    let localResult: {
+      primaryKey?: string;
+      modulation?: string | null;
+      correctedChords?: string[];
+      corrections?: Record<string, string>;
+      sequenceCorrections?: KeyDetectionResult['sequenceCorrections'];
+      romanNumerals?: KeyDetectionResult['romanNumerals'];
+      keyMethod?: string;
+      keyConfidence?: number;
+      keySource?: string;
+      chordKey?: string;
+      keyConflict?: boolean;
+      modulations?: KeyDetectionResult['modulations'];
+    };
 
-    let prompt: string;
-
-    if (includeEnharmonicCorrection || includeRomanNumerals) {
-      // Enhanced prompt for context-aware sequence-based enharmonic correction and Roman numeral analysis
-      const chordSequence = chordNames.filter(chord => chord && chord !== 'N.C.' && chord !== 'N/C');
-
-      const analysisType = includeEnharmonicCorrection && includeRomanNumerals
-        ? "enharmonic spelling corrections AND Roman numeral analysis"
-        : includeEnharmonicCorrection
-        ? "ONLY enharmonic spelling corrections (like C# ↔ Db, F# ↔ Gb) based on key context. DO NOT change chord qualities or functions"
-        : "Roman numeral analysis";
-
-      prompt = `Analyze this chord progression sequence and provide ${analysisType}.
-
-CHORD SEQUENCE (in order): [${chordSequence.join(', ')}]
-
-TIMING INFORMATION: ${chordProgression}
-
-INPUT NOTATION:
-- Chords use Harte-style symbols such as "F#:maj", "Bb:min7", "C#:7", "F#:maj/3", and "C#:7/b7".
-- If the input uses slash-degree inversion notation (for example /3, /5, /b7, /2), preserve that suffix exactly in chord-symbol outputs.
-- Example: "F#:maj/3" may become "Gb:maj/3" in a flat context, but not "Gb:maj/Bb" and not figure-bass notation.
-- If the input uses a slash-note chord symbol (for example "D/F#"), keep it as a slash-note chord symbol.
-
-Please respond with ONLY a JSON object in this exact format:
-{
-  "primaryKey": "[Key Name]",
-  "modulation": "[Key Name]" or null,${includeEnharmonicCorrection ? `
-  "sequenceCorrections": {
-    "originalSequence": [${chordSequence.map(c => `"${c}"`).join(', ')}],
-    "correctedSequence": ["corrected1", "corrected2", ...],
-    "keyAnalysis": {
-      "sections": [
-        {
-          "startIndex": 0,
-          "endIndex": 10,
-          "key": "E major",
-          "chords": ["chord1", "chord2", ...]
-        }
-      ],
-      "modulations": [
-        {
-          "fromKey": "E major",
-          "toKey": "Ab major",
-          "atIndex": 15
-        }
-      ]
-    }
-  },
-  "corrections": {
-    "originalChord1": "correctedChord1"
-  },` : ''}${includeRomanNumerals ? `
-  "romanNumerals": {
-    "analysis": ["I", "vi", "IV", "V7", "I"],
-    "keyContext": "C major",
-    "temporalShifts": [
-      {
-        "chordIndex": 3,
-        "targetKey": "A minor",
-        "romanNumeral": "V7|vi"
-      }
-    ]
-  }` : ''}
-}
-
-	OUTPUT REPRESENTATION RULES:
-	- The fields "sequenceCorrections.correctedSequence", "sequenceCorrections.keyAnalysis.sections[].chords", and "corrections" must contain CHORD SYMBOLS, not Roman numerals.
-	- Preserve inversion slash notation in chord symbols. Slash-degree inputs must stay slash-degree; slash-note inputs must stay slash-note.
-	- If the input chord is "F#:maj/3", the corrected chord symbol in a flat context should be "Gb:maj/3".
-	- If the input chord is "D/F#", the corrected chord symbol must stay slash-based, such as "D/F#" (or an enharmonic respelling of the same pitches if absolutely needed).
-	- NEVER convert a chord symbol into figure-bass shorthand. For chord-symbol outputs, do NOT rewrite "D/F#" as "D6", "D64", "D65", "IV6", or any other Roman numeral / figured-bass label.
-	- Roman numeral inversion notation belongs ONLY inside "romanNumerals.analysis" and "romanNumerals.temporalShifts[*].romanNumeral".
-	- Example: chord symbol output = "F#:maj/3" -> "Gb:maj/3"; Roman numeral output may be "I6" or "IV6" depending on the local key context. Keep these as separate representations.
-
-${includeEnharmonicCorrection ? `
-KEY ANALYSIS AND MODULATION MARKERS (required in "sequenceCorrections.keyAnalysis"):
-- "sections" must cover the full chord index range 0 through (length of originalSequence minus 1) without gaps or overlaps; each section lists the local key and the slice of corrected chord symbols for that span.
-- Whenever the governing key changes for a sustained stretch (true modulation or new tonal center, not a one- or two-chord tonicization), you MUST append an object to "modulations" with "fromKey", "toKey", and "atIndex" equal to the first chord index where the new key clearly governs the harmony.
-- Indexing: "atIndex" is 0-based and matches the position in "originalSequence" / "correctedSequence" (same order as the CHORD SEQUENCE list at the top of this prompt). It must satisfy 0 <= atIndex < length(originalSequence).
-- If there is no modulation, set "modulations" to [].
-- Brief secondary-dominant or borrowed-chord tonicizations belong in "romanNumerals.temporalShifts" / bar notation when Roman analysis is requested; use "modulations" only for clear, section-level key changes.
-
-` : ''}${includeRomanNumerals ? `
-ROMAN NUMERAL ANALYSIS INSTRUCTIONS:
-1. **STANDARD NOTATION**: Use standard Roman numerals (I, ii, iii, IV, V, vi, vii°). Use uppercase for major-quality chords, lowercase for minor-quality chords, and include chord figures such as V7 when needed.
-
-	2. **INVERSIONS**: Use proper figure-bass notation in Roman numeral fields only.
-   - Triads: root position = no figures, first inversion = 6, second inversion = 64.
-   - Seventh chords: root position = 7, first inversion = 65, second inversion = 43, third inversion = 42.
-	   - NEVER use slash notation (I/D, V/B) inside Roman numeral fields; use figure bass instead.
-	   - This applies ONLY to Roman numeral analysis. It does NOT permit changing chord-symbol outputs like "F#:maj/3" into "I6" or "D/F#" into "D6".
-
-3. **TEMPORARY TONAL SHIFTS**: Use bar notation for tonicization, such as "V7|vi". The frontend will display this as "V7/vi".
-
-4. **KEY CONTEXT**: Use Roman numerals relative to the active tonal center, marking primary key and temporary modulations when needed.
-
-5. **CHORD MAPPING**: Provide one Roman numeral per chord in sequence.
-   - Array length must match the chord sequence length.
-   - Use "N.C." for no-chord sections.
-   - Mark unclear analysis with "?" (for example "V7?").
-
-` : ''}${includeEnharmonicCorrection ? `
-ENHARMONIC CORRECTION INSTRUCTIONS:` : ''}
-1. **SAME PITCH REQUIREMENT**: Only change note spelling, never pitch, chord quality, inversion function, or harmonic function.
-   - Valid same-pitch respellings include C#↔Db, D#↔Eb, F#↔Gb, G#↔Ab, A#↔Bb.
-   - Never change to a different pitch class. Example: "G#dim" may become "Abdim", but never "A#dim".
-
-2. **PRESERVE BASS MOTION AND SLASH FUNCTION**: The sounding bass motion must remain identical.
-   - Preserve slash-note chords as slash-note chords and slash-degree chords as slash-degree chords.
-   - Keep the same inversion meaning. Example: "D/F#" must stay slash-based; "F#:maj/3" may become "Gb:maj/3", not "Gb:maj/Bb" and not "D6".
-
-3. **KEEP CHORD QUALITY AND SUFFIXES EXACTLY**:
-   - "F#7" may become "Gb7", but never "F7" or "F#maj7".
-   - "C#m" may become "Dbm", but never "C#" or "Dm".
-   - Keep Harte notation shape when present. Example: "C#:maj" → "Db:maj", "F#:maj/3" → "Gb:maj/3", "C#:7/b7" → "Db:7/b7".
-
-4. **KEY SIGNATURE OPTIMIZATION**: Prefer the enharmonic spelling with fewer accidentals while keeping the section internally consistent.
-   - Prefer Db major over C# major.
-   - Prefer B major over Cb major (except when the local key is Gb major or Eb minor, where the IV chord MUST be spelled as Cb, not B, to maintain diatonic correctness).
-
-	5. **ENHARMONIC CONSISTENCY ACROSS MODULATIONS**: When there is modulation, choose local keys and chord spellings that maintain flat/sharp spelling consistency across the entire song.
-	   - If the first section is in a sharp-preferred key (e.g., E major), and a later section modulates to a key with enharmonic alternatives (e.g., F#/Gb), prefer the sharp spelling (F# major) over the flat spelling (Gb major) to preserve consistency.
-	   - **Extreme Key Exception**: Never choose a key spelling with more than 7 accidentals (like D# major with 9 sharps, or G# major with 8 sharps). Always prefer the simpler enharmonic version (e.g., Eb major with 3 flats over D# major, Ab major with 4 flats over G# major).
-	   - **Retroactive Consistency**: If a later section must use flats due to the Extreme Key Exception (e.g., Eb major instead of D# major), retroactively prefer flats for the preceding sections (e.g., prefer Gb major/Eb minor over F# major/D# minor) to keep flat/sharp consistency across the entire song.
-
-	6. **LOCAL KEY / CHORD SPELLING CONSISTENCY**: Keep local key names and corrected chord spellings in the same enharmonic system.
-	   - If a section is flat-based (for example Ab, Db, Eb, Gb), corrected chords in that section should also be flat-based when an equivalent respelling exists.
-	   - If a section is sharp-based (for example G#, C#, D#), corrected chords in that section should also be sharp-based when an equivalent respelling exists.
-	   - Do not mix sharp and flat spellings within the same local section when the same-pitch respelling can be made consistent.
-
-	7. **CONSERVATIVE APPROACH**: When uncertain, preserve the original spelling unless it conflicts with the chosen local key spelling or creates mixed enharmonic notation within the same section.
-
-VALID CORRECTION EXAMPLES:
-- "C#m" → "Dbm"
-- "F#7" → "Gb7"
-- "F#:maj/3" → "Gb:maj/3"
-- "B" → "Cb" (when the local key is Gb major or Eb minor)
-
-INVALID CORRECTION EXAMPLES:
-- "G#dim" → "A#dim"
-- "F#:maj/3" → "Gb:maj/Bb"
-- "C" → "Cm"
-
-Note: Decide carefully between major and minor.
-- Choose minor only with clear evidence such as raised leading-tone behavior.
-- Consider both the opening chord and the ending chord.
-- Prefer the key interpretation that best fits the full progression.
-
-Respond with ONLY the JSON object, no explanations.`;
-    } else {
-      // Original prompt for key detection only
-      prompt = `Analyze the following chord progression and determine the musical key and any modulations.
-
-Chord progression: ${chordProgression}
-
-Please analyze carefully the tonality and provide ONLY the mostly likely key and modulation information in this exact format:
-Primary Key: **[Key Name]**
-Possible Tonal Modulation: **[Key Name]** (around [timestamp]) OR **None**
-Note: Based on the chords, a key may be classified as either major or natural minor.
-- To classify a key as minor, you need clear evidence, such as accidentals raising the leading tone.
-- For example, when deciding between B♭ major and G minor, unless there are chords containing the F# tone (such as D major) within the song, it is more likely B♭ major.
-- Consider both the opening chord and the final chord for justification.
-- Do not overlook the decision between major and minor; choose the one that best fits the musical context.
-Important: Do not include any explanations, analysis, or additional text. Just give me the key and possible tonal modulation information in the specified format.`;
-    }
-
-    console.log('Sending key detection request to Gemini API');
-
-    // Generate content using the Gemini model
-    console.log('🚀 [GEMINI] Sending key detection request to Gemini API');
     try {
-      const response = await geminiAI.models.generateContent({
-        model: MODEL_NAME,
-        contents: prompt,
-        config: {
-          thinkingConfig: {
-            thinkingLevel: ThinkingLevel.HIGH
-          }
-        }
-      });
-      console.log('✅ [GEMINI] Received response from Gemini API');
-
-      // Extract and clean the response text
-      const text = response.text?.trim() || '';
-
-      let result: KeyDetectionResult;
-
-      if (includeEnharmonicCorrection || includeRomanNumerals) {
-        // Parse JSON response for enhanced mode
-        try {
-          // Clean the response text to remove markdown code blocks if present
-          let cleanedText = text.trim();
-          if (cleanedText.startsWith('```json')) {
-            cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-          } else if (cleanedText.startsWith('```')) {
-            cleanedText = cleanedText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-          }
-
-          const jsonResponse = JSON.parse(cleanedText);
-
-          // Handle both new sequence-based format and legacy format
-          if (jsonResponse.sequenceCorrections) {
-            const sequenceCorrections = sanitizeSequenceCorrections(chordNames, jsonResponse.sequenceCorrections);
-            const legacyCorrections = {
-              ...buildLegacyCorrections(sequenceCorrections),
-              ...sanitizeLegacyCorrections(chordNames, jsonResponse.corrections || {})
-            };
-            const correctedSequence = buildCorrectedChordSequence(chordNames, legacyCorrections, sequenceCorrections);
-
-            result = {
-              primaryKey: jsonResponse.primaryKey || 'Unknown',
-              modulation: jsonResponse.modulation || null,
-              originalChords: chordNames,
-              correctedChords: correctedSequence,
-              corrections: legacyCorrections,
-              sequenceCorrections: sequenceCorrections,
-              romanNumerals: jsonResponse.romanNumerals || null,
-              rawResponse: text
-            };
-          } else {
-            const corrections = sanitizeLegacyCorrections(chordNames, jsonResponse.corrections || {});
-            const correctedChords = chordNames.map(chord => corrections[chord] || chord);
-
-            result = {
-              primaryKey: jsonResponse.primaryKey || 'Unknown',
-              modulation: jsonResponse.modulation || null,
-              originalChords: chordNames,
-              correctedChords: correctedChords,
-              corrections: corrections,
-              romanNumerals: jsonResponse.romanNumerals || null,
-              rawResponse: text
-            };
-          }
-        } catch (parseError) {
-          console.error('Failed to parse JSON response:', parseError);
-          const primaryKeyMatch = text.match(/Primary Key:\s*\*\*([^*]+)\*\*/);
-          const modulationMatch = text.match(/Possible Tonal Modulation:\s*\*\*([^*]+)\*\*/);
-
-          result = {
-            primaryKey: primaryKeyMatch ? primaryKeyMatch[1].trim() : 'Unknown',
-            modulation: modulationMatch ? modulationMatch[1].trim() === 'None' ? null : modulationMatch[1].trim() : null,
-            originalChords: chordNames,
-            correctedChords: chordNames,
-            corrections: {},
-            romanNumerals: null,
-            rawResponse: text
-          };
-        }
-      } else {
-        const primaryKeyMatch = text.match(/Primary Key:\s*\*\*([^*]+)\*\*/);
-        const modulationMatch = text.match(/Possible Tonal Modulation:\s*\*\*([^*]+)\*\*/);
-
-        result = {
-          primaryKey: primaryKeyMatch ? primaryKeyMatch[1].trim() : 'Unknown',
-          modulation: modulationMatch ? modulationMatch[1].trim() === 'None' ? null : modulationMatch[1].trim() : null,
-          rawResponse: text
-        };
-      }
-
-      if (!result.primaryKey || result.primaryKey === 'Unknown') {
-        return NextResponse.json(buildHeuristicKeyDetectionResult({
-          chordNames,
+      const response = await fetch(`${harmonyBaseUrl}/api/analyze-harmony`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chords,
+          includeRomanNumerals,
           includeEnharmonicCorrection,
-          rawResponse: text,
-        }));
+          // Content-addressed local audio id: the backend runs its madmom key CNN on
+          ...(audioId ? { audioId } : {}),
+        }),
+        signal: AbortSignal.timeout(maxDuration * 1000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`analyze-harmony returned ${response.status}`);
       }
 
-      await saveKeyDetectionToCache(cacheKey, result);
-      return NextResponse.json(result);
-    } catch (geminiError) {
-      console.error('Gemini key detection failed, using heuristic fallback:', geminiError);
+      localResult = await response.json();
+      console.log('✅ [HARMONY] Received result from local engine:', {
+        primaryKey: localResult.primaryKey,
+        keyMethod: localResult.keyMethod,
+        keyConfidence: localResult.keyConfidence,
+      });
+    } catch (harmonyError) {
+      console.error('Local harmony engine failed, using heuristic fallback:', harmonyError);
       return NextResponse.json(buildHeuristicKeyDetectionResult({
         chordNames,
         includeEnharmonicCorrection,
       }));
     }
+
+    if (!localResult.primaryKey || localResult.primaryKey === 'Unknown') {
+      return NextResponse.json(buildHeuristicKeyDetectionResult({
+        chordNames,
+        includeEnharmonicCorrection,
+      }));
+    }
+
+    // Normalize into the existing KeyDetectionResult shape and run the same
+    // sanitizers that previously guarded Gemini output.
+    const sanitizedSequence = localResult.sequenceCorrections
+      ? sanitizeSequenceCorrections(chordNames, localResult.sequenceCorrections)
+      : null;
+
+    const legacyCorrections = {
+      ...buildLegacyCorrections(sanitizedSequence),
+      ...sanitizeLegacyCorrections(chordNames, localResult.corrections || {}),
+    };
+
+    // The engine's correctedChords already matches the input length (including
+    // N.C. placeholders), so prefer it directly and avoid reintroducing the
+    // misalignment the legacy client-side rebuild caused
+    const engineCorrectedChords =
+      Array.isArray(localResult.correctedChords) &&
+      localResult.correctedChords.length === chordNames.length
+        ? localResult.correctedChords
+        : null;
+
+    const correctedChords = includeEnharmonicCorrection
+      ? (engineCorrectedChords ?? buildCorrectedChordSequence(chordNames, legacyCorrections, sanitizedSequence))
+      : undefined;
+
+    const result: KeyDetectionResult = {
+      primaryKey: localResult.primaryKey,
+      modulation: localResult.modulation ?? null,
+      originalChords: includeEnharmonicCorrection ? chordNames : undefined,
+      correctedChords,
+      corrections: legacyCorrections,
+      sequenceCorrections: sanitizedSequence,
+      romanNumerals: localResult.romanNumerals || null,
+      keySource: localResult.keySource,
+      chordKey: localResult.chordKey,
+      keyConflict: localResult.keyConflict,
+      keyConfidence: localResult.keyConfidence ?? null,
+      modulations: localResult.modulations,
+      fromCache: false,
+      fromHeuristicFallback: false,
+    };
+
+    await saveKeyDetectionToCache(cacheKey, result);
+    // Backfill the authoritative key onto this audio's analyses rows: the home
+    // page folds "recent" entries by audio_id and reads the key from here
+    // (detect-key finishes after chord recognition).
+    if (audioId && result.primaryKey) {
+      const updated = await setAnalysisKey(audioId, result.primaryKey);
+      console.debug(`[detect-key] backfilled key "${result.primaryKey}" onto ${updated} analysis row(s)`);
+    }
+    return NextResponse.json(result);
 
   } catch (error) {
     console.error('Error detecting key:', error);

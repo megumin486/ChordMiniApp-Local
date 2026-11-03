@@ -38,6 +38,22 @@ describe('buildAudioProxyUrl', () => {
     expect(result).toContain(encodeURIComponent('https://example.com/audio.mp3'));
   });
 
+  // Locally audio is `/api/audio/<audioId>` (a same-origin proxy). It has no CORS
+  // issue, and the `/api/proxy-audio` route does not exist in this repository, so
+  // wrapping it always 404s; same-origin paths must therefore pass through
+  // untouched. This test guards the "pitch shift silently breaks after opening a
+  // cached analysis" regression.
+  it('returns same-origin /api/ paths unchanged', () => {
+    const localUrl = '/api/audio/3065099c21b0ce69e2d03530a0f2a7e44a7cd6f';
+    expect(buildAudioProxyUrl(localUrl)).toBe(localUrl);
+    expect(buildAudioProxyUrl(localUrl, { videoId: 'vid1', forceProxy: true })).toBe(localUrl);
+  });
+
+  it('returns data: URLs unchanged', () => {
+    const dataUrl = 'data:audio/mpeg;base64,AAAA';
+    expect(buildAudioProxyUrl(dataUrl)).toBe(dataUrl);
+  });
+
   it('includes videoId when provided', () => {
     const result = buildAudioProxyUrl('https://example.com/a.mp3', { videoId: 'abc123' });
     expect(result).toContain('videoId=abc123');

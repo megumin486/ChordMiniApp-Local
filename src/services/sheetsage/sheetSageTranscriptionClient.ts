@@ -3,8 +3,8 @@ import { offloadUploadService } from '@/services/storage/offloadUploadService';
 import { getCachedSheetSageMelody } from '@/services/sheetsage/sheetSageCacheClient';
 import { buildAudioProxyUrl } from '@/utils/audioProxyUrl';
 import { isLocalBackend } from '@/utils/backendConfig';
-import { isFirebaseStorageUrl } from '@/utils/urlValidationUtils';
-import { getAppCheckTokenForApi } from '@/config/firebase';
+import { isCloudStorageUrl } from '@/utils/urlValidationUtils';
+import { getAppCheckTokenForApi } from '@/utils/appCheckToken';
 
 const SHEETSAGE_CACHE_RECOVERY_ATTEMPTS = 30;
 const SHEETSAGE_CACHE_RECOVERY_DELAY_MS = 3000;
@@ -122,7 +122,7 @@ export async function requestSheetSageTranscription(
     const shouldUseDirectFirebaseUrl = (
       !audioFile
       && typeof audioUrl === 'string'
-      && isFirebaseStorageUrl(audioUrl)
+      && isCloudStorageUrl(audioUrl)
       && !isLocalBackend()
     );
 

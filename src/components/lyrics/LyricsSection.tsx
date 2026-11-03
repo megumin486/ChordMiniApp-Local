@@ -4,7 +4,10 @@ import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { LyricsData, ChordMarker, SynchronizedLyrics } from '@/types/musicAiTypes';
 import { AnalysisResult } from '@/services/chord-analysis/chordRecognitionService';
-import { useApiKeys } from '@/hooks/settings/useApiKeys';
+import {
+  LYRICS_TRANSCRIPTION_AVAILABLE,
+  LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+} from '@/utils/localCapabilities';
 import { SegmentationResult } from '@/types/chatbotTypes';
 import type { BeatInfo } from '@/services/audio/beatDetectionService';
 import { simplifyChord } from '@/utils/chordSimplification';
@@ -52,7 +55,6 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
   segmentationData = null,
   sequenceCorrections = null
 }) => {
-  const { isServiceAvailable, getServiceMessage } = useApiKeys();
   const { simplifyChords } = useSimplifySelector();
   const storeKeySignature = useKeySignature();
 
@@ -246,7 +248,7 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
 
 
   if (!showLyrics) {
-    const musicAiAvailable = isServiceAvailable('musicAi');
+    const musicAiAvailable = LYRICS_TRANSCRIPTION_AVAILABLE;
 
     return (
       <div className={`p-4 rounded-md transition-colors duration-300 ${
@@ -260,9 +262,9 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
         <p>
           {!musicAiAvailable ? (
             <>
-              {getServiceMessage('musicAi')}
+              {LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE}
               <br />
-              <span className="text-sm">Go to Settings to add your Music.AI API key.</span>
+              <span className="text-sm">Lyrics are shown when a synced lyric sheet is available locally.</span>
             </>
           ) : hasCachedLyrics ? (
             "Cached lyrics are loading automatically. Click \"AI Transcribe\" to refresh or re-transcribe."

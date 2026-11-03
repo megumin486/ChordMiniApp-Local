@@ -8,11 +8,12 @@ import {
 } from '@/services/audio/audioProcessingExtracted';
 import { estimateKeySignatureFromChords } from '@/utils/chordUtils';
 import {
+  getCachedAudioFile,
   getTranscription,
   TranscriptionData,
   updateTranscriptionEnrichment,
-} from '@/services/firebase/firestoreService';
-import type { AudioFileData } from '@/services/firebase/firebaseStorageService';
+} from '@/services/storage/localAnalysisStore';
+import type { AudioFileData } from '@/services/storage/localAnalysisStore';
 import { ProcessingStage } from '@/contexts/ProcessingContext';
 import { LyricsData } from '@/types/musicAiTypes';
 import { useCachedLyricsQuery } from '@/hooks/query/useCachedLyricsQuery';
@@ -49,7 +50,7 @@ interface UseAnalyzePageOrchestratorParams {
   durationFromSearch: string | null;
   channelFromSearch: string | null;
   thumbnailFromSearch: string | null;
-  firebaseReady: boolean;
+  analysisReady: boolean;
   modelsInitialized: boolean;
   beatDetector: BeatDetectorType;
   chordDetector: ChordDetectorType;
@@ -248,7 +249,7 @@ export function useAnalyzePageOrchestrator({
   durationFromSearch,
   channelFromSearch,
   thumbnailFromSearch,
-  firebaseReady,
+  analysisReady,
   modelsInitialized,
   beatDetector,
   chordDetector,
@@ -402,13 +403,7 @@ export function useAnalyzePageOrchestrator({
       return inFlightCachedAudio;
     }
 
-    const cachedAudioPromise = (async () => {
-      const { withFirebaseConnectionCheck } = await import('@/utils/firebaseConnectionManager');
-      return withFirebaseConnectionCheck(async () => {
-        const { getCachedAudioFile } = await import('@/services/firebase/firebaseStorageService');
-        return getCachedAudioFile(videoId);
-      }, 'cached audio check');
-    })();
+    const cachedAudioPromise = (async () => getCachedAudioFile(videoId))();
 
     cachedAudioPromisesRef.current[videoId] = cachedAudioPromise;
     try {
@@ -667,7 +662,7 @@ export function useAnalyzePageOrchestrator({
   ]);
 
   const checkCacheBeforeExtraction = useCallback(async () => {
-    if (!firebaseReady || initialCacheCheckDone) {
+    if (!analysisReady || initialCacheCheckDone) {
       return;
     }
 
@@ -731,9 +726,6 @@ export function useAnalyzePageOrchestrator({
     try {
       setInitialCacheCheckDone(true);
 
-      const { ensureFirebaseInitialized } = await import('@/config/firebase');
-      await ensureFirebaseInitialized();
-
       const cachedAudio = await loadCachedAudioFile();
 
       if (cachedAudio) {
@@ -790,7 +782,7 @@ export function useAnalyzePageOrchestrator({
     }
   }, [
     extractAudioFromYouTube,
-    firebaseReady,
+    analysisReady,
     initialCacheCheckDone,
     beatDetector,
     chordDetector,
@@ -819,11 +811,7 @@ export function useAnalyzePageOrchestrator({
 
       try {
         setCacheCheckInProgress(true);
-        const { withFirebaseConnectionCheck } = await import('@/utils/firebaseConnectionManager');
-        const cachedData = await withFirebaseConnectionCheck(
-          () => loadTranscriptionSnapshot(beatDetector, chordDetector),
-          'analysis cache check'
-        );
+        const cachedData = await loadTranscriptionSnapshot(beatDetector, chordDetector);
 
         setCacheAvailable(!!cachedData);
         setCacheCheckCompleted(true);
@@ -991,7 +979,8 @@ export function useAnalyzePageOrchestrator({
         const romanNumeralChordData = chordData;
 
         const { detectKey } = await import('@/services/audio/keyDetectionService');
-        const result = await detectKey(romanNumeralChordData, true, false, includeRomanNumeralsInDetection);
+        // Pass the local audio id: the backend uses its madmom key CNN to verify the key and split modulation sections
+        const result = await detectKey(romanNumeralChordData, true, false, includeRomanNumeralsInDetection, analysisResults?.audioId);
 
         syncKeySignature(
           result.primaryKey && result.primaryKey !== 'Unknown'
@@ -1082,7 +1071,7 @@ export function useAnalyzePageOrchestrator({
   ]);
 
   useEffect(() => {
-    if (!videoId || !firebaseReady || audioProcessingState.isExtracting || extractionLockRef.current || initialCacheCheckDone) {
+    if (!videoId || !analysisReady || audioProcessingState.isExtracting || extractionLockRef.current || initialCacheCheckDone) {
       return;
     }
 
@@ -1103,7 +1092,7 @@ export function useAnalyzePageOrchestrator({
   }, [
     audioProcessingState.isExtracting,
     checkCacheBeforeExtraction,
-    firebaseReady,
+    analysisReady,
     initialCacheCheckDone,
     setProgress,
     setStage,

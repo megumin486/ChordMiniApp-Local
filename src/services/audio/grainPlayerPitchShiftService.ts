@@ -16,6 +16,7 @@
 
 import { DEFAULT_PITCH_SHIFTED_AUDIO_VOLUME } from '@/config/audioDefaults';
 import { buildAudioProxyUrl } from '@/utils/audioProxyUrl';
+import { dbg } from '@/utils/debugLog';
 
 import { audioContextManager } from './audioContextManager';
 
@@ -123,6 +124,11 @@ export class GrainPlayerPitchShiftService {
   private lowPassFilter: any | null = null; // Type will be Tone.Filter after lazy load
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private limiter: any | null = null; // Type will be Tone.Limiter after lazy load
+
+  // Output meter (pass-through) used only for diagnostics: it lets the debug
+  // log report the real level leaving the pitch-shift chain, which turns
+  // "user says it is silent" into a number we can inspect.
+  private meter: any | null = null; // Type will be Tone.Meter after lazy load
   private isInitialized = false;
 
   // Playback state
@@ -190,11 +196,11 @@ export class GrainPlayerPitchShiftService {
   private pendingSeekTime: number | null = null;
 
   /**
-   * Diagnostic log helper — body removed to reduce console noise.
-   * Re-add logging selectively when investigating specific bugs.
+   * Diagnostic log helper — forwards to the local debug sink
+   * (/api/debug-log -> /tmp/chordmini-debug.log) plus the browser console.
    */
-  private _diag(_tag: string, _extra?: Record<string, unknown>): void {
-    // intentionally empty
+  private _diag(tag: string, extra?: Record<string, unknown>): void {
+    dbg(`grain.${tag}`, extra);
   }
 
   /**
@@ -205,6 +211,11 @@ export class GrainPlayerPitchShiftService {
     try {
       const Tone = await getTone();
       const shared = audioContextManager.getContext();
+      this._diag('initialize.start', {
+        sharedState: shared?.state,
+        sharedSampleRate: shared?.sampleRate,
+        toneContextState: (Tone.getContext() as unknown as { state?: string })?.state,
+      });
       // If Tone is not already using the shared AudioContext, set it
       const ctxObj = Tone.getContext() as unknown as { rawContext?: AudioContext };
       const currentRaw: AudioContext | undefined = ctxObj?.rawContext;
@@ -222,8 +233,17 @@ export class GrainPlayerPitchShiftService {
         await (Tone as unknown as { start: () => Promise<void> }).start();
       }
       this.isInitialized = true;
+      this._diag('initialize.done', {
+        state: (Tone.getContext() as unknown as { state?: string })?.state,
+        sharedState: shared?.state,
+      });
     } catch (error) {
       console.error('❌ Failed to initialize GrainPlayer service:', error);
+      this._diag('initialize.failed', {
+        message: (error as Error)?.message,
+        name: (error as Error)?.name,
+        stack: (error as Error)?.stack?.split('\n').slice(0, 4).join(' | '),
+      });
       throw error;
     }
   }
@@ -268,6 +288,17 @@ export class GrainPlayerPitchShiftService {
         await Tone.start();
       }
 
+      this._diag('loadAudio.start', {
+        urlScheme: audioUrl.slice(0, 12),
+        isBlobUrl,
+        finalUrlScheme: String(finalUrl).slice(0, 12),
+        semitones,
+        initialPlaybackRate,
+        playbackRate: this._playbackRate,
+        toneContextState: String(Tone.getContext().state),
+        sampleRate: Tone.getContext().sampleRate,
+      });
+
       // Create gain node for volume control
       this.gainNode = new Tone.Gain(0.9);
 
@@ -283,10 +314,15 @@ export class GrainPlayerPitchShiftService {
       // Create a limiter to prevent clipping
       this.limiter = new Tone.Limiter(-1);
 
-      // SIGNAL CHAIN: GrainPlayer → LowPass → Gain → Limiter → Destination
+      // Pass-through output meter so the debug log can report the level that
+      // actually reaches the destination.
+      this.meter = new Tone.Meter({ normalRange: true, smoothing: 0.7 });
+
+      // SIGNAL CHAIN: GrainPlayer → LowPass → Gain → Limiter → Meter → Destination
       this.lowPassFilter.connect(this.gainNode);
       this.gainNode.connect(this.limiter);
-      this.limiter.toDestination();
+      this.limiter.connect(this.meter);
+      this.meter.toDestination();
 
       // Create GrainPlayer with optimized settings
       //
@@ -335,6 +371,11 @@ export class GrainPlayerPitchShiftService {
         },
         onerror: (error: Error) => {
           console.error('❌ Tone.js GrainPlayer load error:', error);
+          this._diag('loadAudio.onerror', {
+            message: error?.message,
+            name: error?.name,
+            finalUrlScheme: String(finalUrl).slice(0, 12),
+          });
           throw new Error('Failed to load audio file');
         }
       });
@@ -391,6 +432,13 @@ export class GrainPlayerPitchShiftService {
 
     } catch (error) {
       console.error('❌ Failed to load audio:', error);
+      this._diag('loadAudio.failed', {
+        message: (error as Error)?.message,
+        name: (error as Error)?.name,
+        stack: (error as Error)?.stack?.split('\n').slice(0, 4).join(' | '),
+        playerLoaded: this.grainPlayer?.loaded ?? null,
+        duration: this._duration,
+      });
       throw error;
     }
   }
@@ -492,6 +540,13 @@ export class GrainPlayerPitchShiftService {
    */
   play(): void {
     if (!this.grainPlayer || !this.grainPlayer.loaded) {
+      this._diag('play.skipped', {
+        hasPlayer: !!this.grainPlayer,
+        loaded: this.grainPlayer?.loaded ?? null,
+        duration: this._duration,
+        currentTime: this._currentTime,
+        isPlaying: this._isPlaying,
+      });
       return;
     }
 
@@ -518,9 +573,28 @@ export class GrainPlayerPitchShiftService {
         this._isPlaying = true;
         this._playAnchorWallTime = this._wallNow();
         this._playAnchorPosition = this._currentTime;
+        this._diag('play.started', {
+          compensatedOffset,
+          currentTime: this._currentTime,
+          playbackRate: this._playbackRate,
+          // Tone 15 keeps GrainPlayer.detune as a plain number of cents
+          // (assigned in the constructor, read per grain in _tick), NOT a
+          // Param — so the old `detune?.value` always logged undefined.
+          detune: this.grainPlayer.detune,
+          gain: this.gainNode?.gain?.value,
+          filterCutoff: this.lowPassFilter?.frequency?.value,
+          duration: this._duration,
+        });
+        this.probeOutputLevel('play.levelProbe');
+      } else {
+        this._diag('play.alreadyPlaying', {
+          currentTime: this._currentTime,
+          isPlaying: this._isPlaying,
+        });
       }
     } catch (error) {
       console.error('[GrainPlayerPitchShiftService] play() failed:', error);
+      this._diag('play.failed', { message: (error as Error)?.message });
     }
   }
 
@@ -538,6 +612,14 @@ export class GrainPlayerPitchShiftService {
         this.grainPlayer.stop();
         this._isPlaying = false;
         this._playAnchorWallTime = null;
+
+        // Diagnostics: this is the only silent stop path in the service, so
+        // log it — a caller that pauses the grain unexpectedly (e.g. a clock
+        // source that is not advancing) is invisible without this entry.
+        this._diag('pause.applied', {
+          currentTime: Number(this._currentTime.toFixed(4)),
+          duration: this._duration,
+        });
 
         if (this._duration > 0 && this._currentTime >= this._duration && this.onEndedCallback) {
           this.onEndedCallback();
@@ -742,6 +824,47 @@ export class GrainPlayerPitchShiftService {
   /**
    * Set callback for playback ended
    */
+  /**
+   * DEBUG ONLY: sample the output meter a few times so the debug log can show
+   * whether the pitch-shift chain is actually emitting signal.
+   */
+  probeOutputLevel(tag: string, samples = 8, intervalMs = 400): void {
+    if (!this.meter) {
+      this._diag(tag, { hasMeter: false });
+      return;
+    }
+
+    let count = 0;
+    let peak = 0;
+    const timer = setInterval(() => {
+      let raw: unknown = 0;
+      try {
+        raw = this.meter?.getValue?.();
+      } catch {
+        raw = 0;
+      }
+      const value = Array.isArray(raw)
+        ? Math.max(...(raw as number[]))
+        : (typeof raw === 'number' ? raw : 0);
+      if (Number.isFinite(value)) {
+        peak = Math.max(peak, value);
+      }
+      count += 1;
+
+      if (count >= samples) {
+        clearInterval(timer);
+        this._diag(tag, {
+          peakLevel: Number(peak.toFixed(5)),
+          samples: count,
+          isPlaying: this._isPlaying,
+          playerState: this.grainPlayer?.state,
+          playerLoaded: this.grainPlayer?.loaded,
+          toneState: String((this.meter as { context?: { state?: string } } | null)?.context?.state),
+        });
+      }
+    }, intervalMs);
+  }
+
   setOnEnded(callback: (() => void) | null): void {
     this.onEndedCallback = callback;
   }
@@ -784,6 +907,15 @@ export class GrainPlayerPitchShiftService {
         console.warn('⚠️ Error disposing limiter:', error);
       }
       this.limiter = null;
+    }
+
+    if (this.meter) {
+      try {
+        this.meter.dispose();
+      } catch (error) {
+        console.warn('⚠️ Error disposing meter:', error);
+      }
+      this.meter = null;
     }
 
     this._isPlaying = false;

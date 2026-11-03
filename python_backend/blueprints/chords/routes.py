@@ -15,6 +15,7 @@ from extensions import limiter
 from utils.logging import log_info, log_error, log_debug
 from utils.paths import AUDIO_DIR
 from services.audio.tempfiles import temporary_file
+from services.cache import cache_service
 from .validators import (
     validate_chord_recognition_request,
     validate_firebase_chord_recognition_request,
@@ -28,6 +29,19 @@ chords_bp = Blueprint('chords', __name__)
 
 # Get configuration
 config = get_config()
+
+
+# Chord result cache version: since v2 a successful response carries audioId (the harmony engine uses it to verify the audio key).
+# Old cache entries lack that field, so the version is folded into the cache parameters to let them expire naturally.
+CHORDS_CACHE_VERSION = 2
+
+
+def _cache_disabled() -> bool:
+    """Honour ``nocache=1`` on either the query string or the form body."""
+    flag = request.args.get('nocache')
+    if flag is None:
+        flag = request.form.get('nocache')
+    return str(flag or '').strip().lower() in ('1', 'true', 'yes')
 
 
 def _download_remote_audio_to_temp_path(file_url: str, temp_path: str, timeout_seconds: int = 300) -> None:
@@ -106,6 +120,26 @@ def recognize_chords():
                 f"chord_dict={params['chord_dict']}, force={params['force']}, "
                 f"use_spleeter={params['use_spleeter']}")
 
+        # Local cache: content-addressed audio + result keyed by model/params.
+        audio_id = None
+        upload_name = getattr(file, 'filename', None) or None
+        cache_params = {
+            'chord_dict': params['chord_dict'],
+            'use_spleeter': params['use_spleeter'],
+            '_v': CHORDS_CACHE_VERSION,
+        }
+        if not _cache_disabled():
+            audio_info = cache_service.ingest_audio(file_path, upload_name)
+            if audio_info:
+                audio_id = audio_info['audio_id']
+                cached = cache_service.lookup_analysis(
+                    'chords', audio_id, params['detector'], cache_params
+                )
+                if cached:
+                    log_info(f"Chord recognition cache hit: {audio_id[:12]} "
+                             f"detector={params['detector']} dict={params['chord_dict']}")
+                    return jsonify(cache_service.replay(cached['payload'], cached))
+
         # Run chord recognition
         result = chord_service.recognize_chords(
             file_path=file_path,
@@ -114,6 +148,22 @@ def recognize_chords():
             force=params['force'],
             use_spleeter=params['use_spleeter']
         )
+
+        # return the content-addressed audioId too: the frontend passes it when it later calls /api/detect-key,
+        # so the harmony engine can verify authoritatively with madmom audio key detection (see blueprints/harmony/routes.py)
+        if audio_id:
+            result['audioId'] = audio_id
+
+        if audio_id and result.get('success'):
+            cache_service.store_analysis(
+                'chords',
+                result,
+                audio_id=audio_id,
+                model=params['detector'],
+                params=cache_params,
+                duration=result.get('duration'),
+                filename=upload_name or os.path.basename(file_path),
+            )
 
         if result.get('success'):
             log_info(f"Chord recognition successful: {result['total_chords']} chords detected "

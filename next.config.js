@@ -3,77 +3,32 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
   enabled: process.env.ANALYZE === 'true',
 });
 
+// connect-src keeps only the origins this local build genuinely calls out to.
+// Removed during the Phase 5 tightening (2026-11-01): ad/analytics domains
+// (doubleclick, googlesyndication, googleadservices and friends), the YouTube
+// data domains, quicktube, api.genius, the three Vercel domains,
+// jsdelivr/unpkg, vocalremover, workers.dev and dltkk, none of which had any
+// product reference under src/.
+// Note img-src / frame-src / script-src were left untouched and still carry
+// their own YouTube/Google entries.
 const connectSrcValues = Array.from(new Set([
   "'self'",
   'blob:',
-  'https://*.googleapis.com',
-  'https://*.youtube.com',
-  'https://www.youtube-nocookie.com',
-  'https://*.ytimg.com',
-  'https://*.ggpht.com',
-  'https://*.google.com',
-  'https://*.doubleclick.net',
-  'https://googleads.g.doubleclick.net',
-  'https://www.google.com',
-  'https://pagead2.googlesyndication.com',
-  'https://*.googlesyndication.com',
-  'https://tpc.googlesyndication.com',
-  'https://securepubads.g.doubleclick.net',
-  'https://partner.googleadservices.com',
-  'https://googleadservices.com',
-  'https://quicktube.app',
-  'https://lrclib.net',
-  'https://api.genius.com',
-  'https://vercel.com',
-  'https://*.vercel.com',
-  'https://api.vercel.com',
+  // smplr soundfont library (loaded with fetch as a midi-js soundfont):
+  // src/services/chord-playback/soundfont/smplrLoader.ts → gleitzKitUrl
   'https://gleitz.github.io',
+  // smplr violin loop data (loadLoopData: true) -> getGoldstSoundfontLoopsUrl
   'https://goldst.dev',
-  'https://cdn.jsdelivr.net',
-  'https://unpkg.com',
-  'https://*.vocalremover.org',
-  'https://*.workers.dev',
-  'https://dltkk.to',
 ]));
 
 const contentSecurityPolicy = [
   `connect-src ${connectSrcValues.join(' ')}`,
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
-  "frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://*.firebaseapp.com https://s3.us-east-1.amazonaws.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://www.recaptcha.net",
+  "frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://s3.us-east-1.amazonaws.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://www.recaptcha.net",
   "img-src 'self' data: https://*.googleapis.com https://*.youtube.com https://*.ytimg.com https://*.ggpht.com https://*.google.com https://*.doubleclick.net https://*.googlesyndication.com https://pagead2.googlesyndication.com",
   "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://*.googleapis.com https://*.google.com https://www.gstatic.com https://www.recaptcha.net https://*.doubleclick.net https://*.googlesyndication.com https://gleitz.github.io https://cdn.jsdelivr.net https://unpkg.com",
 ].join('; ');
 
-const broadFilesystemTraceExcludes = [
-  './SongFormer/**/*',
-  './python_backend/**/*',
-  './sheetsage/**/*',
-  './scripts/**/*',
-  './yt-dlp-server/**/*',
-  './docker/**/*',
-  './firebase/**/*',
-  './__tests__/**/*',
-  './src/**/*',
-  './public/**/*',
-  './*.md',
-  './*.yml',
-  './*.yaml',
-  './*.tsbuildinfo',
-  './Dockerfile',
-  './docker-compose*.yml',
-  './eslint.config.mjs',
-  './next.config.js',
-  './tailwind.config.js',
-  './tsconfig*.json',
-  './vercel.json',
-];
-
-const broadFilesystemTraceRoutes = [
-  '/api/extract-audio',
-  '/api/transcribe-lyrics',
-  '/api/youtube-media-proxy',
-  '/api/ytdlp/download',
-];
 
 const nextConfig = {
   // Enable standalone output for Docker deployments
@@ -93,17 +48,8 @@ const nextConfig = {
     } : false,
   },
 
-  // Server-only packages that should not be bundled (stabilized in Next.js 16)
-  serverExternalPackages: ['@music.ai/sdk'],
-
-  // Output file tracing excludes (stabilized in Next.js 16)
-  outputFileTracingExcludes: Object.fromEntries(
-    broadFilesystemTraceRoutes.map((route) => [route, broadFilesystemTraceExcludes])
-  ),
-
   // Experimental features
   experimental: {
-    optimizePackageImports: ['firebase', '@firebase/app', '@firebase/firestore', '@firebase/auth'],
     nextScriptWorkers: false,
   },
 
@@ -121,10 +67,6 @@ const nextConfig = {
       {
         protocol: 'https',
         hostname: 'yt3.ggpht.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'firebasestorage.googleapis.com',
       },
       {
         protocol: 'https',
@@ -233,14 +175,6 @@ const nextConfig = {
             priority: 55,
             enforce: true,
           },
-          // Vendor: Firebase (consolidated all Firebase packages, priority 40)
-          'vendor-firebase': {
-            test: /[\\/]node_modules[\\/](@firebase\/|firebase\/)[\\/]/,
-            name: 'vendor-firebase',
-            chunks: 'all',
-            priority: 40,
-            enforce: true,
-          },
           // Vendor: UI libraries (priority 35)
           'vendor-ui': {
             test: /[\\/]node_modules[\\/](@heroui|@headlessui\/react|@heroicons|@radix-ui\/|react-icons)[\\/]/,
@@ -248,16 +182,9 @@ const nextConfig = {
             chunks: 'all',
             priority: 35,
           },
-          // Vendor: Chart.js and related (priority 34)
-          'vendor-charts': {
-            test: /[\\/]node_modules[\\/](chart\.js|chartjs-.*|@kurkle|react-chartjs-2)[\\/]/,
-            name: 'vendor-charts',
-            chunks: 'all',
-            priority: 34,
-          },
           // Vendor: Audio libraries (priority 33)
           'vendor-audio': {
-            test: /[\\/]node_modules[\\/](tone|smplr|music-metadata|@distube\/ytdl-core|ytdl-core|lamejs)[\\/]/,
+            test: /[\\/]node_modules[\\/](tone|smplr|music-metadata)[\\/]/,
             name: 'vendor-audio',
             chunks: 'all',
             priority: 33,
@@ -268,13 +195,6 @@ const nextConfig = {
             name: 'vendor-state',
             chunks: 'all',
             priority: 32,
-          },
-          // Vendor: Utility libraries (priority 31)
-          'vendor-utils': {
-            test: /[\\/]node_modules[\\/](lodash|date-fns|uuid|crypto-js|clsx)[\\/]/,
-            name: 'vendor-utils',
-            chunks: 'all',
-            priority: 31,
           },
           // Styles: CSS files (priority 20)
           styles: {
@@ -331,37 +251,6 @@ const nextConfig = {
         },
       },
     });
-
-    // Fix for @music.ai/sdk ES module bundling issues
-    if (isServer) {
-      // Ensure @music.ai/sdk is properly bundled for server-side rendering
-      config.externals = config.externals || [];
-
-      // Don't externalize @music.ai/sdk - bundle it instead
-      if (Array.isArray(config.externals)) {
-        config.externals = config.externals.filter(external => {
-          if (typeof external === 'string') {
-            return !external.includes('@music.ai/sdk');
-          }
-          return true;
-        });
-      }
-    }
-
-    if (!isServer) {
-      // Use resolve.alias (not fallback) to completely prevent webpack from
-      // tracing into firebase-admin's dependency tree on the client side.
-      // firebase-admin is server-only; dynamic imports in firebaseAdmin.ts
-      // are guarded by typeof window checks at runtime.
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        'firebase-admin': false,
-        'firebase-admin/app': false,
-        'firebase-admin/auth': false,
-        'firebase-admin/storage': false,
-        'firebase-admin/firestore': false,
-      };
-    }
 
     // Handle ES modules properly
     config.resolve.extensionAlias = {

@@ -1,74 +1,65 @@
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  startAfter,
-  where,
-  DocumentSnapshot,
-  DocumentData,
-  QuerySnapshot,
-  QueryConstraint,
-} from 'firebase/firestore';
-import { db, ensureFirebaseInitialized } from '@/config/firebase';
-import { buildSearchableKeys } from '@/utils/keySignatureUtils';
-import { normalizeThumbnailUrl } from '@/utils/youtubeMetadata';
+/**
+ * Home page "recent analyses" list, backed by the local SQLite cache.
+ *
+ * Phase 4 removed Firebase/Firestore, so the old transcription collection query
+ * had no data source. Data now comes from the Flask backend's `analyses` table
+ * via the same-origin Next route `/api/local-cache` (the browser only talks to
+ * port 3000, never 5001 directly, avoiding CORS and proxy issues):
+ *
+ *   - The backend folds the chords / harmony / beats rows of one track by
+ *     `audio_id`, so `videoId` here is really the local audio id
+ *     (`/api/audio/<id>` plays directly);
+ *   - The key comes from the `key_signature` column that detect-key backfills,
+ *     so key filtering happens in the backend (`?key=A major`) rather than by
+ *     comparing strings in the client;
+ *   - Paging uses the folded row offset `offset`; `lastVisible` is where the
+ *     next page starts.
+ */
+
+export interface RecentAnalysisItem {
+  audio_id: string | null;
+  model: string | null;
+  filename: string | null;
+  title: string;
+  duration: number | null;
+  created_at: number;
+  hits: number;
+  bpm?: number | null;
+  keySignature?: string | null;
+  timeSignature?: number | null;
+}
 
 export interface TranscribedVideo {
+  /** Locally this is the audio content hash (audio_id) */
   videoId: string;
   title?: string;
-  channelTitle?: string;
-  thumbnailUrl?: string;
   processedAt: number;
   duration?: number;
   beatModel?: string;
-  chordModel?: string;
   bpm?: number;
   timeSignature?: number;
   keySignature?: string;
   usageCount?: number;
 }
 
-export type RecentVideosQueryMode = 'primary' | 'legacy';
+export type RecentVideosQueryMode = 'local';
 
 export interface RecentVideosPageParam {
-  cursor: DocumentSnapshot | null;
+  /** Offset over the folded rows; null means the first page */
+  cursor: number | null;
   mode: RecentVideosQueryMode | null;
   existingVideoIds: string[];
 }
 
 export interface RecentVideosPage {
   videos: TranscribedVideo[];
-  lastVisible: DocumentSnapshot | null;
+  /** Offset of the next page (= position after the last row of this page) */
+  lastVisible: number | null;
   hasMore: boolean;
   queryMode: RecentVideosQueryMode;
 }
 
-type FirestoreTranscriptionDoc = {
-  videoId?: string;
-  beats?: unknown[];
-  chords?: unknown[];
-  createdAt?: { toMillis?: () => number; seconds?: number };
-  audioDuration?: number;
-  beatModel?: string;
-  chordModel?: string;
-  bpm?: number;
-  timeSignature?: number;
-  keySignature?: string;
-  primaryKey?: string;
-  title?: string;
-  channelTitle?: string;
-  thumbnail?: string;
-  searchableKeys?: string[];
-  isPrimaryVariant?: boolean;
-  usageCount?: number;
-};
-
-const TRANSCRIPTIONS_COLLECTION = 'transcriptions';
 export const RECENT_VIDEOS_PAGE_SIZE = 12;
-const LEGACY_QUERY_FETCH_LIMIT = RECENT_VIDEOS_PAGE_SIZE * 2;
-const MAX_SCAN_PAGES = 4;
 export const ALL_KEYS_VALUE = 'all';
 
 export const createInitialRecentVideosPageParam = (): RecentVideosPageParam => ({
@@ -77,60 +68,53 @@ export const createInitialRecentVideosPageParam = (): RecentVideosPageParam => (
   existingVideoIds: [],
 });
 
-export function mapTranscriptionDocToRecentVideo(
-  docData: FirestoreTranscriptionDoc,
+export function mapRecentAnalysisToVideo(
+  item: RecentAnalysisItem,
   existingVideoIds: Set<string> = new Set(),
 ): TranscribedVideo | null {
-  if (
-    !docData.videoId ||
-    existingVideoIds.has(docData.videoId) ||
-    (docData.beats?.length ?? 0) === 0 ||
-    (docData.chords?.length ?? 0) === 0
-  ) {
+  const audioId = item.audio_id;
+  if (!audioId || existingVideoIds.has(audioId)) {
     return null;
   }
 
   return {
-    videoId: docData.videoId,
-    title: docData.title || `Video ${docData.videoId}`,
-    channelTitle: docData.channelTitle || undefined,
-    thumbnailUrl: normalizeThumbnailUrl(docData.videoId, docData.thumbnail, 'mqdefault'),
-    processedAt: docData.createdAt?.toMillis?.() || (docData.createdAt?.seconds ? docData.createdAt.seconds * 1000 : Date.now()),
-    duration: docData.audioDuration,
-    beatModel: docData.beatModel,
-    chordModel: docData.chordModel,
-    bpm: docData.bpm,
-    timeSignature: docData.timeSignature || 4,
-    keySignature: docData.keySignature || docData.primaryKey,
-    usageCount: docData.usageCount,
+    videoId: audioId,
+    title: item.title || `Audio ${audioId.slice(0, 8)}`,
+    processedAt: (item.created_at ?? 0) * 1000,
+    duration: item.duration ?? undefined,
+    beatModel: item.model ?? undefined,
+    bpm: typeof item.bpm === 'number' && item.bpm > 0 ? item.bpm : undefined,
+    timeSignature: item.timeSignature ?? undefined,
+    keySignature: item.keySignature || undefined,
+    usageCount: item.hits,
   };
 }
 
-export function transcriptionMatchesSelectedKey(
-  docData: FirestoreTranscriptionDoc,
-  selectedKey: string,
-): boolean {
-  if (selectedKey === ALL_KEYS_VALUE) return true;
-
-  const selectedKeyVariants = buildSearchableKeys(selectedKey);
-  const docKeys = Array.isArray(docData.searchableKeys) && docData.searchableKeys.length > 0
-    ? docData.searchableKeys
-    : buildSearchableKeys(docData.keySignature || docData.primaryKey);
-
-  return docKeys.some((docKey) => selectedKeyVariants.includes(docKey));
-}
-
-async function getFirestoreDb() {
-  if (db) {
-    return db;
+async function fetchRecentAnalyses(params: {
+  limit: number;
+  offset: number;
+  keySignature: string | null;
+}): Promise<RecentAnalysisItem[]> {
+  const search = new URLSearchParams({
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.keySignature && params.keySignature !== ALL_KEYS_VALUE) {
+    search.set('key', params.keySignature);
   }
 
-  const { db: initializedDb } = await ensureFirebaseInitialized();
-  if (!initializedDb) {
-    throw new Error('Firebase not initialized');
+  try {
+    const response = await fetch(`/api/local-cache?${search.toString()}`, { cache: 'no-store' });
+    if (!response.ok) {
+      console.warn(`[recentVideos] /api/local-cache -> HTTP ${response.status}`);
+      return [];
+    }
+    const payload = (await response.json()) as { success?: boolean; items?: RecentAnalysisItem[] };
+    return payload?.items ?? [];
+  } catch (error) {
+    console.warn('[recentVideos] failed to load recent analyses:', error instanceof Error ? error.message : error);
+    return [];
   }
-
-  return initializedDb;
 }
 
 export async function fetchRecentVideosPage({
@@ -142,102 +126,27 @@ export async function fetchRecentVideosPage({
   pageParam: RecentVideosPageParam;
   pageSize?: number;
 }): Promise<RecentVideosPage> {
-  const firestoreDb = await getFirestoreDb();
-  const transcriptionsRef = collection(firestoreDb, TRANSCRIPTIONS_COLLECTION);
+  const offset = Math.max(0, pageParam.cursor ?? 0);
   const existingVideoIds = new Set(pageParam.existingVideoIds);
-  const selectedKeyVariants = selectedKey === ALL_KEYS_VALUE
-    ? []
-    : buildSearchableKeys(selectedKey);
 
-  const fetchPrimaryPage = async (cursor: DocumentSnapshot | null) => {
-    const constraints: QueryConstraint[] = [
-      where('isPrimaryVariant', '==', true),
-    ];
+  // Fetch one extra row to know whether another page exists
+  const items = await fetchRecentAnalyses({
+    limit: pageSize + 1,
+    offset,
+    keySignature: selectedKey,
+  });
 
-    if (selectedKeyVariants.length > 0) {
-      constraints.push(where('searchableKeys', 'array-contains-any', selectedKeyVariants));
-    }
+  const videos = items
+    .map((item) => mapRecentAnalysisToVideo(item, existingVideoIds))
+    .filter((video): video is TranscribedVideo => video !== null)
+    .slice(0, pageSize);
 
-    constraints.push(orderBy('createdAt', 'desc'));
+  const hasMore = items.length > pageSize;
 
-    if (cursor) {
-      constraints.push(startAfter(cursor));
-    }
-
-    constraints.push(limit(pageSize));
-
-    const snapshot = await getDocs(query(transcriptionsRef, ...constraints));
-    const pageVideos = snapshot.docs
-      .map((docSnapshot) => mapTranscriptionDocToRecentVideo(
-        docSnapshot.data() as FirestoreTranscriptionDoc,
-        existingVideoIds,
-      ))
-      .filter((video): video is TranscribedVideo => Boolean(video));
-
-    return {
-      videos: pageVideos,
-      lastVisible: snapshot.docs[snapshot.docs.length - 1] || null,
-      hasMore: snapshot.size === pageSize && snapshot.docs.length === pageSize,
-    };
+  return {
+    videos,
+    lastVisible: hasMore ? offset + pageSize : null,
+    hasMore,
+    queryMode: 'local',
   };
-
-  const fetchLegacyPage = async (cursor: DocumentSnapshot | null) => {
-    const videoMap = new Map<string, TranscribedVideo>();
-    let lastVisibleLocal: DocumentSnapshot | null = null;
-    let fetchedDocCount = 0;
-    let scanCursor = cursor;
-
-    const addFromSnapshot = (snap: QuerySnapshot<DocumentData>) => {
-      snap.forEach((docSnapshot) => {
-        const docData = docSnapshot.data() as FirestoreTranscriptionDoc;
-        if (!transcriptionMatchesSelectedKey(docData, selectedKey)) return;
-
-        const video = mapTranscriptionDocToRecentVideo(docData, existingVideoIds);
-        if (!video || videoMap.has(video.videoId)) return;
-        videoMap.set(video.videoId, video);
-      });
-    };
-
-    for (let page = 0; page < MAX_SCAN_PAGES; page += 1) {
-      const snapshot = scanCursor
-        ? await getDocs(query(transcriptionsRef, orderBy('createdAt', 'desc'), startAfter(scanCursor), limit(LEGACY_QUERY_FETCH_LIMIT)))
-        : await getDocs(query(transcriptionsRef, orderBy('createdAt', 'desc'), limit(LEGACY_QUERY_FETCH_LIMIT)));
-
-      addFromSnapshot(snapshot);
-      fetchedDocCount = snapshot.size;
-      lastVisibleLocal = snapshot.docs[snapshot.docs.length - 1] || null;
-      scanCursor = lastVisibleLocal;
-
-      if (videoMap.size >= pageSize || fetchedDocCount < LEGACY_QUERY_FETCH_LIMIT) {
-        break;
-      }
-    }
-
-    return {
-      videos: Array.from(videoMap.values()).slice(0, pageSize),
-      lastVisible: lastVisibleLocal,
-      hasMore: fetchedDocCount === LEGACY_QUERY_FETCH_LIMIT && !!lastVisibleLocal,
-    };
-  };
-
-  const preferredMode = pageParam.mode ?? 'primary';
-
-  if (preferredMode === 'primary') {
-    try {
-      const primaryResult = await fetchPrimaryPage(pageParam.cursor);
-      if (!pageParam.cursor && primaryResult.videos.length === 0) {
-        const legacyResult = await fetchLegacyPage(null);
-        return { ...legacyResult, queryMode: 'legacy' };
-      }
-
-      return { ...primaryResult, queryMode: 'primary' };
-    } catch (primaryError) {
-      console.warn('Primary recent videos query failed, using legacy fallback:', primaryError);
-      const legacyResult = await fetchLegacyPage(pageParam.cursor);
-      return { ...legacyResult, queryMode: 'legacy' };
-    }
-  }
-
-  const legacyResult = await fetchLegacyPage(pageParam.cursor);
-  return { ...legacyResult, queryMode: 'legacy' };
 }

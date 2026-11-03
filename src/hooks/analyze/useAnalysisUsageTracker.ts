@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { incrementTranscriptionUsage } from '@/services/firebase/firestoreService';
-import { safeSessionStorage } from '@/utils/clientOnlyFirebase';
+import { incrementTranscriptionUsage } from '@/services/storage/localAnalysisStore';
+import { safeSessionStorage } from '@/utils/browserStorage';
 
 const USAGE_COUNT_STORAGE_PREFIX = 'chordmini_analysis_usage_counted:';
 const DEFAULT_USAGE_THRESHOLD_SECONDS = 45;

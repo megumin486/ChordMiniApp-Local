@@ -41,6 +41,8 @@ const RomanNumeralToggle: React.FC<RomanNumeralToggleProps> = ({
         <motion.button
           onClick={onClick}
           className={buttonClassName}
+          aria-label={isEnabled ? "Hide Roman numeral analysis" : "Show Roman numeral analysis"}
+          aria-pressed={isEnabled}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
         >

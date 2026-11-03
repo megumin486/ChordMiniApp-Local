@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { SheetSageResult } from '@/types/sheetSage';
-import { getDocumentWithAdminAccess } from '@/services/firebase/firestoreAdminService';
+import { cacheKvGet } from '@/services/cache/localCacheClient';
+
+/**
+ * Reads a cached Sheet Sage melody result.
+ *
+ * Upstream stored these documents in Firestore (`melody/{videoId}`); this fork
+ * has no Firebase and keeps them in the local SQLite key/value store instead,
+ * under `melody:<videoId>` — the same store `/api/transcribe-sheetsage` writes
+ * to after a successful transcription.
+ */
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+const MELODY_CACHE_KEY_PREFIX = 'melody:';
 
 interface MelodyCacheDocument extends SheetSageResult {
   videoId: string;
@@ -8,8 +22,12 @@ interface MelodyCacheDocument extends SheetSageResult {
   createdAt: string;
 }
 
+/**
+ * Cache keys accept the YouTube id used upstream and the local audio id
+ * (sha256 content hash) this fork derives from an uploaded file.
+ */
 function isValidVideoId(videoId: string): boolean {
-  return /^[a-zA-Z0-9_-]{11}$/.test(videoId);
+  return /^[a-zA-Z0-9_-]{11}$/.test(videoId) || /^[a-f0-9]{64}$/.test(videoId);
 }
 
 function normalizeMelodyDocument(data: MelodyCacheDocument): MelodyCacheDocument {
@@ -72,7 +90,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const melodyDoc = await getDocumentWithAdminAccess<MelodyCacheDocument>('melody', videoId);
+    const melodyDoc = await cacheKvGet<MelodyCacheDocument>(`${MELODY_CACHE_KEY_PREFIX}${videoId}`);
     if (!melodyDoc) {
       console.log(`🎻 [API] No cached melody found for ${videoId}`);
       return NextResponse.json({ success: true, cached: false, data: null });

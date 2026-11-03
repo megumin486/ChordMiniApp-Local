@@ -4,11 +4,19 @@ export interface ChordGridHeaderProps {
   timeSignature: number;
   timeSignatureLabel?: string;
   keySignature?: string;
+  keyChain?: string[];
   isDetectingKey?: boolean;
   hasPickupBeats?: boolean;
   pickupBeatsCount?: number;
   className?: string;
 }
+
+/**
+ * Section key chain: shown as "A major -> B major" when the middle of the track
+ * really modulates (keyChain longer than one). Roman numerals after the
+ * modulation are spelled in the new key, so hiding it makes them look wrong.
+ */
+const formatKeyLabel = (value: string): string => value.replace(/b/g, '♭').replace(/#/g, '♯');
 
 /**
  * Header component for ChordGrid displaying time signature, key signature, and pickup beats
@@ -18,11 +26,14 @@ export const ChordGridHeader: React.FC<ChordGridHeaderProps> = ({
   timeSignature,
   timeSignatureLabel,
   keySignature,
+  keyChain,
   isDetectingKey = false,
   hasPickupBeats = false,
   pickupBeatsCount = 0,
   className = ''
 }) => {
+  const hasModulation = Boolean(keyChain && keyChain.length > 1);
+  const keyLabel = hasModulation ? keyChain!.join(' → ') : keySignature;
   return (
     <div className={`flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between ${className}`}>
       {/* Left side - Title */}
@@ -44,11 +55,11 @@ export const ChordGridHeader: React.FC<ChordGridHeaderProps> = ({
           </span>
         </div>
 
-        {/* Key signature tag */}
-        {keySignature && (
+        {/* Key signature tag (shows the full key chain when the key changes) */}
+        {keyLabel && (
           <div className="rounded-lg border border-green-300/60 bg-green-500/10 px-2 py-0.5 sm:px-3 sm:py-1 dark:border-green-400/35 dark:bg-green-800/40">
             <span className="text-xs font-medium text-green-800 dark:text-green-50 sm:text-sm">
-              Key: {keySignature.replace(/b/g, '♭').replace(/#/g, '♯')}
+              Key: {formatKeyLabel(keyLabel)}
             </span>
           </div>
         )}

@@ -5,7 +5,6 @@ import { Popover, PopoverTrigger, PopoverContent, Tooltip } from '@heroui/react'
 import { motion } from 'framer-motion';
 import { HiChevronDoubleDown, HiOutlineChevronDoubleDown } from 'react-icons/hi2';
 import { PiMetronomeBold, PiMetronome } from 'react-icons/pi';
-import { GiMicrophone } from 'react-icons/gi';
 import { VscRobot } from 'react-icons/vsc';
 import SegmentationToggleButton from '@/components/analysis/SegmentationToggleButton';
 import RomanNumeralToggle from '@/components/analysis/RomanNumeralToggle';
@@ -14,12 +13,11 @@ import ChordPlaybackToggle from '@/components/chord-playback/ChordPlaybackToggle
 import ChordSimplificationToggle from '@/components/analysis/ChordSimplificationToggle';
 import PitchShiftPopover from '@/components/chord-playback/PitchShiftPopover';
 import LoopPlaybackToggle from '@/components/analysis/LoopPlaybackToggle';
-import LyricsSearchDialog from '@/components/analysis/LyricsSearchDialog';
+import PromptExportToggle from '@/components/analysis/PromptExportToggle';
 import UtilityPopoverPanel from '@/components/analysis/UtilityPopoverPanel';
+import type { PromptExportInput } from '@/utils/promptExport';
 import { useShowRomanNumerals, useToggleRomanNumerals, useSimplifyChords, useToggleSimplifyChords } from '@/stores/uiStore';
 import { metronomeService } from '@/services/chord-playback/metronomeService';
-import type { LyricsServiceResponse } from '@/services/lyrics/lyricsService';
-import type { LRCLibCandidate } from '@/services/lyrics/lrclibService';
 import { FloatingDock } from '@/components/ui/FloatingDock';
 
 interface UtilityBarProps {
@@ -66,18 +64,6 @@ interface UtilityBarProps {
   isChatbotOpen: boolean;
   isLyricsPanelOpen: boolean;
   toggleChatbot: () => void;
-  toggleLyricsPanel: () => void;
-  lyricsSearchPopover?: {
-    isOpen: boolean;
-    query: string;
-    isLoading: boolean;
-    error: string | null;
-    result: LyricsServiceResponse | null;
-    onQueryChange: (query: string) => void;
-    onClose: () => void;
-    onSearch: () => void;
-    onApplyCandidate: (candidate: LRCLibCandidate) => void;
-  };
   segmentation: {
     isVisible: boolean;
     hasData: boolean;
@@ -96,6 +82,12 @@ interface UtilityBarProps {
 
   // Loop playback
   totalBeats?: number;
+
+  // AI prompt export (item 27): the button only renders when this is passed.
+  promptExport?: {
+    input: PromptExportInput;
+    trackName?: string | null;
+  };
 
   // Layout
   maxWidth?: string | number;
@@ -247,11 +239,10 @@ const UtilityBar: React.FC<UtilityBarProps> = ({
   isChatbotOpen,
   isLyricsPanelOpen,
   toggleChatbot,
-  toggleLyricsPanel,
-  lyricsSearchPopover,
   segmentation,
   metronome,
   totalBeats = 0,
+  promptExport,
   maxWidth: _maxWidth = '1200px',
   className = '',
   isUploadPage = false
@@ -326,7 +317,11 @@ const UtilityBar: React.FC<UtilityBarProps> = ({
             onClick={toggleSimplifyChords}
           />
 
-          {/* Pitch Shift */}
+          {/* Pitch Shift
+              Re-enabled for local audio. The GrainPlayer engine already
+              supports blob: URLs (see grainPlayerPitchShiftService.loadAudio),
+              and the analyse page passes audioProcessingState.audioUrl which is
+              a blob: URL for local uploads. */}
           <PitchShiftPopover
             playbackRate={playbackRate}
             setPlaybackRate={setPlaybackRate}
@@ -385,62 +380,12 @@ const UtilityBar: React.FC<UtilityBarProps> = ({
             errorMessage={segmentation.errorMessage}
           />
 
-          {/* Lyrics Popover (Unwrapped Fragment) */}
-          {!isUploadPage && (
-            <Popover
-              placement="top"
-              offset={10}
-              isOpen={lyricsSearchPopover?.isOpen ?? false}
-              onOpenChange={(open) => {
-                if (!open) {
-                  lyricsSearchPopover?.onClose();
-                }
-              }}
-              classNames={{
-                content: 'p-0 border-none bg-transparent shadow-none'
-              }}
-            >
-              <PopoverTrigger>
-                <div className="relative inline-block">
-                  <Tooltip
-                    content={isLyricsPanelOpen ? 'Hide lyrics in grid' : 'Show lyrics in grid'}
-                    placement="top"
-                    classNames={{
-                      content: 'bg-white text-gray-900 dark:bg-content-bg dark:text-gray-100 border border-gray-300 dark:border-gray-600 shadow-lg'
-                    }}
-                  >
-                    <button
-                      onClick={toggleLyricsPanel}
-                      className={`${utilityCircleButtonClass} ${isLyricsPanelOpen ? 'bg-emerald-600 text-white' : 'bg-gray-200/60 dark:bg-gray-600/60 text-gray-800 dark:text-gray-100'}`}
-                      aria-label="Toggle beat grid lyrics"
-                    >
-                      {isLyricsPanelOpen ? (
-                        <GiMicrophone className="h-4 w-4" />
-                      ) : (
-                        <GiMicrophone className="h-4 w-4 opacity-70" />
-                      )}
-                    </button>
-                  </Tooltip>
-                </div>
-              </PopoverTrigger>
-              <PopoverContent>
-                <UtilityPopoverPanel bodyClassName="p-0">
-                  {lyricsSearchPopover && (
-                    <LyricsSearchDialog
-                      isOpen={lyricsSearchPopover.isOpen}
-                      query={lyricsSearchPopover.query}
-                      isLoading={lyricsSearchPopover.isLoading}
-                      error={lyricsSearchPopover.error}
-                      result={lyricsSearchPopover.result}
-                      onQueryChange={lyricsSearchPopover.onQueryChange}
-                      onClose={lyricsSearchPopover.onClose}
-                      onSearch={lyricsSearchPopover.onSearch}
-                      onApplyCandidate={lyricsSearchPopover.onApplyCandidate}
-                    />
-                  )}
-                </UtilityPopoverPanel>
-              </PopoverContent>
-            </Popover>
+          {/* AI prompt export (item 27): generated locally, no network */}
+          {promptExport && (
+            <PromptExportToggle
+              input={promptExport.input}
+              trackName={promptExport.trackName ?? null}
+            />
           )}
 
           {/* Chatbot Tooltip (Unwrapped Fragment) */}

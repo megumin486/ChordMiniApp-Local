@@ -40,7 +40,7 @@ export async function GET() {
     const fallbackDocs = {
       title: "ChordMini Audio Analysis API",
       version: "1.0.0",
-      description: "API for audio analysis including beat detection, chord recognition, and lyrics fetching",
+      description: "API for audio analysis including beat detection and chord recognition",
       base_url: "/api",
       endpoints: [
         {
@@ -145,54 +145,6 @@ export async function GET() {
             file: "Audio file (multipart form)"
           }
         },
-        {
-          path: "/api/lrclib-lyrics",
-          method: "POST",
-          summary: "Fetch synchronized lyrics from LRCLib",
-          description: "Retrieves synchronized lyrics with timestamps using artist and title information",
-          parameters: {
-            artist: "Artist name",
-            title: "Song title",
-            duration: "Song duration in seconds (optional)"
-          },
-          responses: {
-            "200": {
-              description: "Synchronized lyrics retrieval results",
-              example: {
-                success: true,
-                artist: "Artist Name",
-                title: "Song Title",
-                has_synchronized: true,
-                synced_lyrics: "[00:12.34] Lyric line with timestamp...",
-                plain_lyrics: "Plain text lyrics without timestamps..."
-              }
-            }
-          }
-        },
-        {
-          path: "/api/lrclib-lyrics",
-          method: "POST",
-          summary: "Fetch synchronized lyrics from LRClib",
-          description: "Retrieves time-synchronized lyrics for karaoke-style display",
-          parameters: {
-            artist: "Artist name",
-            title: "Song title",
-            duration: "Song duration in seconds (optional)"
-          },
-          responses: {
-            "200": {
-              description: "Synchronized lyrics retrieval results",
-              example: {
-                success: true,
-                lyrics: "[00:12.34] First line of lyrics\\n[00:15.67] Second line...",
-                artist: "Artist Name",
-                title: "Song Title",
-                album: "Album Name",
-                duration: 180.5
-              }
-            }
-          }
-        }
       ]
     };
 

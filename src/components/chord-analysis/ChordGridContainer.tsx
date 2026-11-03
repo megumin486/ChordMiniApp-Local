@@ -70,6 +70,11 @@ interface ChordGridContainerProps {
   onChordEdit?: (index: number, newChord: string) => void;
   gridLyrics?: BeatGridTimedLyrics | null;
   plainLyrics?: string | null;
+  // Stable (un-simplified) chords used only for Roman numeral mapping. The UI
+  // simplify toggle rewrites `chordGridData.chords`, while the backend Roman
+  // numeral analysis stays aligned to the original sequence: mapping must not
+  // follow the simplified labels or every later numeral shifts by one.
+  originalChordsForRomanNumerals?: string[];
 }
 
 export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(({
@@ -90,6 +95,7 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
   onChordEdit,
   gridLyrics = null,
   plainLyrics = null,
+  originalChordsForRomanNumerals: originalChordsForRomanNumeralsProp,
 }) => {
   // PERFORMANCE OPTIMIZATION: Memoize stable props to prevent unnecessary re-renders
   // Only recalculate when the actual data changes, not on every render
@@ -149,7 +155,8 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
       beats: effectiveChordGridData.beats,
       // CRITICAL FIX: Pass original chords for Roman numeral mapping
       // Roman numerals should be based on original key, not transposed chords
-      originalChordsForRomanNumerals: chordGridData.chords,
+      // AND not on simplified chords: prefer the stable un-simplified sequence.
+      originalChordsForRomanNumerals: originalChordsForRomanNumeralsProp ?? chordGridData.chords,
       timeSignature,
       keySignature: displayKey,
       isDetectingKey: mergedIsDetectingKey,
@@ -168,7 +175,13 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
       segmentationData,
       showSegmentation,
       showRomanNumerals: mergedShowRomanNumerals,
-      romanNumeralData: mergedRomanNumeralData
+      romanNumeralData: mergedRomanNumeralData,
+      // Section key chain: non-empty only when the middle really modulates; the
+      // header shows "A major -> B major". Numerals are computed in the new key,
+      // so hiding it makes the later ones look wrong.
+      keySections: (mergedRomanNumeralData?.sections ?? [])
+        .map((section) => section?.key)
+        .filter((key): key is string => Boolean(key)),
     };
   }, [
     effectiveChordGridData.chords,
@@ -181,6 +194,7 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
     effectiveChordGridData.originalAudioMapping,
     effectiveChordGridData.metricSegments,
     chordGridData.chords, // Add original chords to dependencies
+    originalChordsForRomanNumeralsProp,
     mergedAnalysisResults?.beatDetectionResult?.time_signature,
     mergedAnalysisResults?.beatDetectionResult?.beat_time_range_start,
     mergedKeySignature,

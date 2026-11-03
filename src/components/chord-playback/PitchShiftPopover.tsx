@@ -19,10 +19,13 @@ import {
   useTogglePitchShift,
   usePitchShiftSemitones,
   useIsProcessingPitchShift,
-  useIsFirebaseAudioAvailable,
-  useSetPitchShiftSemitones
+  useIsLocalAudioAvailable,
+  useSetPitchShiftSemitones,
+  useOriginalKey,
+  useTargetKey
 } from '@/stores/uiStore';
 import { formatSemitones } from '@/utils/chordTransposition';
+import { dbg } from '@/utils/debugLog';
 
 interface PitchShiftPopoverProps {
   playbackRate: number;
@@ -44,10 +47,12 @@ const PitchShiftPopover: React.FC<PitchShiftPopoverProps> = memo(({
   const togglePitchShift = useTogglePitchShift();
   const pitchShiftSemitones = usePitchShiftSemitones();
   const isProcessingPitchShift = useIsProcessingPitchShift();
-  const isFirebaseAudioAvailable = useIsFirebaseAudioAvailable();
+  const isLocalAudioAvailable = useIsLocalAudioAvailable();
   const setPitchShiftSemitones = useSetPitchShiftSemitones();
+  const originalKey = useOriginalKey();
+  const targetKey = useTargetKey();
 
-  const isDisabled = !isFirebaseAudioAvailable;
+  const isDisabled = !isLocalAudioAvailable;
   const buttonClassName = `h-9 w-9 min-w-9 rounded-full shadow-md transition-colors duration-200 inline-flex items-center justify-center p-0 ${
     isPitchShiftEnabled
       ? 'bg-green-600 text-white hover:bg-green-700'
@@ -63,9 +68,10 @@ const PitchShiftPopover: React.FC<PitchShiftPopoverProps> = memo(({
   const handleSliderChange = useCallback(
     (value: number | number[]) => {
       const numValue = Array.isArray(value) ? value[0] : value;
+      dbg('pitchshift.sliderChange', { value: numValue, previous: pitchShiftSemitones });
       setPitchShiftSemitones(numValue);
     },
-    [setPitchShiftSemitones]
+    [setPitchShiftSemitones, pitchShiftSemitones]
   );
 
   // Playback speed slider change handler
@@ -89,6 +95,13 @@ const PitchShiftPopover: React.FC<PitchShiftPopoverProps> = memo(({
 
   // Handle toggle button click
   const handleToggleClick = useCallback(() => {
+    dbg('pitchshift.toggleClick', {
+      enabling: !isPitchShiftEnabled,
+      semitones: pitchShiftSemitones,
+      originalKey,
+      targetKey,
+      isPopoverOpen,
+    });
     if (!isPitchShiftEnabled) {
       // Enabling pitch shift: turn it on and open popover
       togglePitchShift();
@@ -98,7 +111,7 @@ const PitchShiftPopover: React.FC<PitchShiftPopoverProps> = memo(({
       togglePitchShift();
       setIsPopoverOpen(false);
     }
-  }, [isPitchShiftEnabled, togglePitchShift]);
+  }, [isPitchShiftEnabled, togglePitchShift, pitchShiftSemitones, originalKey, targetKey, isPopoverOpen]);
 
   useEffect(() => {
     if (!isPopoverOpen) {

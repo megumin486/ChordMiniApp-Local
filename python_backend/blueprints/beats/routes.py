@@ -18,6 +18,7 @@ from .validators import (
     validate_file_size
 )
 from services.audio.tempfiles import temporary_file
+from services.cache import cache_service
 from utils.logging import log_info, log_error, log_debug
 
 # Create blueprint
@@ -25,6 +26,57 @@ beats_bp = Blueprint('beats', __name__)
 
 # Get configuration for rate limits
 config = get_config()
+
+
+def _cache_disabled() -> bool:
+    """Honour ``nocache=1`` on either the query string or the form body."""
+    flag = request.args.get('nocache')
+    if flag is None:
+        flag = request.form.get('nocache')
+    return str(flag or '').strip().lower() in ('1', 'true', 'yes')
+
+
+def _detect_beats_cached(
+    beat_service,
+    file_path: str,
+    params: dict,
+    filename: str | None = None,
+) -> dict:
+    """Beat detection with the local content-addressed cache in front."""
+    if _cache_disabled():
+        return beat_service.detect_beats(
+            file_path=file_path,
+            detector=params['detector'],
+            force=params['force']
+        )
+
+    audio_info = cache_service.ingest_audio(file_path, filename)
+    audio_id = audio_info['audio_id'] if audio_info else None
+
+    if audio_id:
+        cached = cache_service.lookup_analysis('beats', audio_id, params['detector'], {})
+        if cached:
+            log_info(f"Beat detection cache hit: {audio_id[:12]} detector={params['detector']}")
+            return cache_service.replay(cached['payload'], cached)
+
+    result = beat_service.detect_beats(
+        file_path=file_path,
+        detector=params['detector'],
+        force=params['force']
+    )
+
+    if audio_id and result.get('success'):
+        cache_service.store_analysis(
+            'beats',
+            result,
+            audio_id=audio_id,
+            model=params['detector'],
+            params={},
+            duration=result.get('duration'),
+            filename=filename or os.path.basename(file_path),
+        )
+
+    return result
 
 
 def _download_remote_audio_to_temp_path(file_url: str, temp_path: str, timeout_seconds: int = 300) -> None:
@@ -77,11 +129,9 @@ def detect_beats():
                     file_path = temp_path
                     temp_file_path = temp_path
 
-                    # Run beat detection
-                    result = beat_service.detect_beats(
-                        file_path=file_path,
-                        detector=params['detector'],
-                        force=params['force']
+                    # Run beat detection (cache-aware)
+                    result = _detect_beats_cached(
+                        beat_service, file_path, params, getattr(file, 'filename', None)
                     )
             else:
                 # Use provided audio path
@@ -89,12 +139,8 @@ def detect_beats():
                 if not os.path.exists(file_path):
                     return jsonify({"error": f"Audio file not found: {file_path}"}), 404
 
-                # Run beat detection
-                result = beat_service.detect_beats(
-                    file_path=file_path,
-                    detector=params['detector'],
-                    force=params['force']
-                )
+                # Run beat detection (cache-aware)
+                result = _detect_beats_cached(beat_service, file_path, params)
 
             # Return result
             if result.get('success'):

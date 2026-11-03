@@ -10,11 +10,11 @@ const HelpPage: React.FC = () => {
   const faqs = [
     {
       question: "How do I analyze a song?",
-      answer: "Simply paste a YouTube URL into the search box on the home page, or use the 'Analyze Audio' page to upload an audio file directly. ChordMini will automatically detect beats, chords, and synchronize lyrics."
+      answer: "Open the 'Analyze Audio' page and upload a local audio file from your computer. ChordMini runs the beat, chord, key and Roman numeral analysis on your own machine — no account, no upload, no API key."
     },
     {
       question: "What audio formats are supported?",
-      answer: "ChordMini supports common audio formats including MP3, WAV, M4A, and FLAC. For YouTube videos, audio is automatically extracted from the video."
+      answer: "ChordMini supports common audio formats including MP3, WAV, M4A, and FLAC. Audio is read directly from the file you pick, so nothing has to be downloaded first."
     },
     {
       question: "How accurate is the chord recognition?",
@@ -26,7 +26,7 @@ const HelpPage: React.FC = () => {
     },
     {
       question: "Is my data stored or shared?",
-      answer: "ChordMini processes audio locally and uses Firebase for caching analysis results to improve performance. No personal data is shared with third parties. See our Privacy Policy for details."
+      answer: "ChordMini runs entirely on this machine: audio never leaves your computer. Analysis results are cached in a local SQLite database so repeat analyses are instant, and nothing is uploaded to any server. See our Privacy Policy for details."
     },
     {
       question: "Why is processing taking a long time?",
@@ -65,10 +65,10 @@ const HelpPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  Enter a YouTube URL
+                  Enter your audio file
                 </h3>
                 <p className="text-gray-600 dark:text-gray-300">
-                  Paste any YouTube music video URL into the search box on the home page.
+                  Pick a song on the 'Analyze Audio' page — the file stays on your computer.
                 </p>
               </div>
             </div>
@@ -81,7 +81,7 @@ const HelpPage: React.FC = () => {
                   Wait for Analysis
                 </h3>
                 <p className="text-gray-600 dark:text-gray-300">
-                  ChordMini will extract audio, detect beats and chords, and fetch synchronized lyrics.
+                  ChordMini detects beats and chords, then derives the key, Roman numerals and modulation points — all locally.
                 </p>
               </div>
             </div>

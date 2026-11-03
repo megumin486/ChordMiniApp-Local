@@ -31,8 +31,31 @@ export default function YouTubeVideoAnalyzePage() {
   const routeParams = readAnalyzeRouteParams(searchParams);
   const viewModel = useAnalyzePageViewModel({ videoId, routeParams });
 
+  // YouTube URL analysis was dropped with the rest of the cloud pipeline
+  // (FEATURE_SCOPE items 1-2): `extractAudio` is a throwing stub and nothing
+  // writes the `chordmini_analyze_handoff` session key any more, so this route
+  // can never produce results. Say so instead of rendering a shell that looks
+  // like it is about to analyse something.
+  const unavailableNotice = (
+    <div className="relative z-40 border-b border-warning-200 bg-warning-50 px-4 py-3 dark:border-warning-500/30 dark:bg-warning-500/10">
+      <div className="mx-auto flex max-w-5xl flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-warning-700 dark:text-warning-300">
+          <span className="font-semibold">YouTube analysis is unavailable in this local build.</span>{' '}
+          Search and audio extraction were removed together with the cloud pipeline. Upload a local audio file instead.
+        </p>
+        <a
+          href="/analyze"
+          className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          Upload audio
+        </a>
+      </div>
+    </div>
+  );
+
   return (
     <div className="relative min-h-screen bg-background dark:bg-slate-900">
+      {unavailableNotice}
       <ConditionalPlaybackControls
         youtubePlayer={viewModel.youtubePlayer}
         setIsPlaying={viewModel.setIsPlaying}
@@ -44,7 +67,7 @@ export default function YouTubeVideoAnalyzePage() {
             <PitchShiftAudioManager
               youtubePlayer={viewModel.youtubePlayer}
               audioRef={viewModel.audioRef}
-              firebaseAudioUrl={viewModel.audioUrl}
+              localAudioUrl={viewModel.audioUrl}
               isPlaying={viewModel.audioPlayerState.isPlaying}
               currentTime={viewModel.audioPlayerState.currentTime}
               playbackRate={viewModel.audioPlayerState.playbackRate}

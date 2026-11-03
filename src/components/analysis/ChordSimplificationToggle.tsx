@@ -40,6 +40,8 @@ const ChordSimplificationToggle: React.FC<ChordSimplificationToggleProps> = ({
       <motion.button
         onClick={onClick}
         className={buttonClassName}
+        aria-label={isEnabled ? "Show full chord notation" : "Simplify chord notation"}
+        aria-pressed={isEnabled}
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >

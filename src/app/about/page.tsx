@@ -75,9 +75,9 @@ const AboutPage: React.FC = () => {
                 <div>
                   <h4 className="font-medium text-gray-900 dark:text-white mb-2">Backend & ML</h4>
                   <ul className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
-                    <li>• Python Flask (Google Cloud Run)</li>
-                    <li>• Firebase Firestore</li>
-                    <li>• Firebase Cloud Storage</li>
+                    <li>• Python Flask (local service)</li>
+                    <li>• SQLite cache &amp; local audio store</li>
+                    <li>• Built-in harmony rule engine</li>
                     <li>• Custom ML Models</li>
                   </ul>
                 </div>
@@ -102,9 +102,9 @@ const AboutPage: React.FC = () => {
                 <div>
                   <h4 className="font-medium text-gray-900 dark:text-white mb-2">Platform</h4>
                   <ul className="space-y-1 text-sm text-gray-600 dark:text-gray-300">
-                    <li>• YouTube integration</li>
+                    <li>• Local audio file upload (offline)</li>
                     <li>• Synchronized lyrics display</li>
-                    <li>• Lead sheet generation</li>
+                    <li>• Roman numeral &amp; modulation analysis</li>
                     <li>• Multi-language support</li>
                   </ul>
                 </div>
@@ -145,20 +145,6 @@ const AboutPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* LRClib */}
-                <div className="border-l-4 border-green-500 pl-4">
-                  <h4 className="font-medium text-gray-900 dark:text-white">
-                    <a href="https://lrclib.net/"
-                       className="text-blue-600 dark:text-blue-400 hover:underline"
-                       target="_blank" rel="noopener noreferrer">
-                      LRClib
-                    </a>
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Lyrics synchronization service providing time-synced lyrics data for the Lyrics & Chords feature.
-                  </p>
-                </div>
-
                 {/* YouTube Search API */}
                 <div className="border-l-4 border-red-500 pl-4">
                   <h4 className="font-medium text-gray-900 dark:text-white">
@@ -173,63 +159,7 @@ const AboutPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* yt-dlp */}
-                <div className="border-l-4 border-purple-500 pl-4">
-                  <h4 className="font-medium text-gray-900 dark:text-white">
-                    <a href="https://github.com/yt-dlp/yt-dlp"
-                       className="text-blue-600 dark:text-blue-400 hover:underline"
-                       target="_blank" rel="noopener noreferrer">
-                      yt-dlp
-                    </a>
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    YouTube audio extraction tool used for downloading and processing audio content for chord analysis.
-                  </p>
                 </div>
-
-                {/* LRCLIB API */}
-                <div className="border-l-4 border-yellow-500 pl-4">
-                  <h4 className="font-medium text-gray-900 dark:text-white">
-                    <a href="https://lrclib.net/docs"
-                       className="text-blue-600 dark:text-blue-400 hover:underline"
-                       target="_blank" rel="noopener noreferrer">
-                      LRCLIB API
-                    </a>
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Lyrics and song metadata service providing comprehensive song information and lyrics data.
-                  </p>
-                </div>
-
-                {/* Music.AI */}
-                <div className="border-l-4 border-indigo-500 pl-4">
-                  <h4 className="font-medium text-gray-900 dark:text-white">
-                    <a href="https://music.ai/"
-                       className="text-blue-600 dark:text-blue-400 hover:underline"
-                       target="_blank" rel="noopener noreferrer">
-                      Music.AI
-                    </a>
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    AI-powered music transcription service for word-level lyrics synchronization and audio analysis.
-                  </p>
-                </div>
-
-                {/* Google Gemini API */}
-                <div className="border-l-4 border-orange-500 pl-4">
-                  <h4 className="font-medium text-gray-900 dark:text-white">
-                    <a href="https://ai.google.dev/"
-                       className="text-blue-600 dark:text-blue-400 hover:underline"
-                       target="_blank" rel="noopener noreferrer">
-                      Google Gemini API
-                    </a>
-                  </h4>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    AI language model used for lyrics translation, enharmonic chord corrections, and intelligent music analysis.
-                  </p>
-                </div>
-
-              </div>
             </div>
 
             <p className="text-sm text-gray-600 dark:text-gray-400 italic">

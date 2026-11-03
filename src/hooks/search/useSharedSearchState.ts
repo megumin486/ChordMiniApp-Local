@@ -81,37 +81,10 @@ export const useSharedSearchState = () => {
           throw new Error('Search request timed out after 30 seconds');
         }, 30000);
 
-        const response = await apiPost('SEARCH_YOUTUBE', {
-          query: query.trim(),
-          maxResults: 10
-        });
-
+        // YouTube search is unavailable in the local-only build.
+        // FEATURE_SCOPE item 1 was dropped together with the YouTube API.
         clearTimeout(searchTimeout);
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to search YouTube');
-        }
-
-        const data = await response.json();
-
-        if (data.success && data.results) {
-          const normalizedResults = (data.results as YouTubeSearchResult[]).map((result) => {
-            const channelTitle = pickPreferredChannelTitle(result.channelTitle, result.channel);
-            return {
-              ...result,
-              channel: channelTitle || 'Unknown Channel',
-              channelTitle: channelTitle || undefined,
-              thumbnail: normalizeThumbnailUrl(result.id, result.thumbnail, 'mqdefault'),
-            };
-          });
-
-          setSearchResults(normalizedResults);
-          setSearchError(null);
-        } else {
-          setSearchResults([]);
-          setSearchError('No results found for your search.');
-        }
+        throw new Error('YouTube search is not available in the local-only build');
       } catch (error) {
         console.error('Search error:', error);
         setSearchError(error instanceof Error ? error.message : 'Search failed');

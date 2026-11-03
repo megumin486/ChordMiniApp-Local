@@ -8,8 +8,6 @@ import type { LyricsData } from '@/types/musicAiTypes';
 import type { YouTubePlayer } from '@/types/youtube';
 import type { UseChordPlaybackReturn } from '@/hooks/chord-playback/useChordPlayback';
 import type { TabKey } from '@/components/homepage/ResultsTabs';
-import type { LyricsServiceResponse } from '@/services/lyrics/lyricsService';
-import type { LRCLibCandidate } from '@/services/lyrics/lrclibService';
 import type { BeatGridTimedLyrics } from '@/components/chord-analysis/GridLyricsRow';
 
 export interface AnalyzePageChromeProps {
@@ -237,18 +235,6 @@ export interface AnalyzePageViewModel {
     isChatbotOpen: boolean;
     isLyricsPanelOpen: boolean;
     toggleChatbot: () => void;
-    toggleLyricsPanel: () => void;
-    lyricsSearchPopover: {
-      isOpen: boolean;
-      query: string;
-      isLoading: boolean;
-      error: string | null;
-      result: LyricsServiceResponse | null;
-      onQueryChange: (query: string) => void;
-      onClose: () => void;
-      onSearch: () => void;
-      onApplyCandidate: (candidate: LRCLibCandidate) => void;
-    };
     segmentation: {
       isVisible: boolean;
       hasData: boolean;

@@ -78,8 +78,9 @@ def register_blueprints(app: Flask, config) -> None:
     from blueprints.docs import docs_bp
     from blueprints.beats import beats_bp
     from blueprints.chords import chords_bp
-    from blueprints.lyrics import lyrics_bp
     from blueprints.songformer import songformer_bp
+    from blueprints.harmony import harmony_bp
+    from blueprints.cache import cache_bp
     from blueprints.debug import debug_bp
 
     # Register blueprints
@@ -87,8 +88,9 @@ def register_blueprints(app: Flask, config) -> None:
     app.register_blueprint(docs_bp)
     app.register_blueprint(beats_bp)
     app.register_blueprint(chords_bp)
-    app.register_blueprint(lyrics_bp)
     app.register_blueprint(songformer_bp)
+    app.register_blueprint(harmony_bp)
+    app.register_blueprint(cache_bp)
 
     # Register debug blueprint only in non-production mode
     if not config.PRODUCTION_MODE:
@@ -135,15 +137,9 @@ def init_services(app: Flask, config) -> None:
         # Create a dummy service that returns errors
         services['chord_recognition'] = None
 
-    # Initialize lyrics service
-    try:
-        from services.lyrics.orchestrator import LyricsOrchestrator
-        services['lyrics'] = LyricsOrchestrator(config)
-        log_info("Lyrics service initialized")
-    except Exception as e:
-        log_info(f"Failed to initialize lyrics service: {e}")
-        # Create a dummy service that returns errors
-        services['lyrics'] = None
+    # Lyrics service (Genius / LRCLib) was removed in Phase 5: the only lyrics
+    # UI that reached it was disabled, and keeping it meant holding an outbound
+    # domain in the CSP for a feature nobody could open.
 
     # Initialize SongFormer service
     try:

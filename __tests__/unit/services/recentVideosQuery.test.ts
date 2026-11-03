@@ -1,119 +1,133 @@
-const mockGetDocs = jest.fn();
-const mockStartAfter = jest.fn((cursor) => ({ type: 'startAfter', cursor }));
-
-jest.mock('@/config/firebase', () => ({
-  db: { app: 'firestore' },
-  ensureFirebaseInitialized: jest.fn(),
-}));
-
-jest.mock('firebase/firestore', () => ({
-  collection: jest.fn((db, name) => ({ db, name })),
-  query: jest.fn((ref, ...constraints) => ({ ref, constraints })),
-  orderBy: jest.fn((field, direction) => ({ type: 'orderBy', field, direction })),
-  limit: jest.fn((count) => ({ type: 'limit', count })),
-  getDocs: (...args: unknown[]) => mockGetDocs(...args),
-  startAfter: (...args: unknown[]) => mockStartAfter(...args),
-  where: jest.fn((field, op, value) => ({ type: 'where', field, op, value })),
-}));
+/**
+ * Data-fetching tests for the local build's "recent analyses" list.
+ *
+ * After Phase 4 the data source is the Flask `analyses` table (via the
+ * same-origin `/api/local-cache` proxy), so `fetch` is mocked here rather than
+ * Firestore.
+ */
 
 import {
   ALL_KEYS_VALUE,
   createInitialRecentVideosPageParam,
   fetchRecentVideosPage,
-  mapTranscriptionDocToRecentVideo,
-  transcriptionMatchesSelectedKey,
+  mapRecentAnalysisToVideo,
+  RECENT_VIDEOS_PAGE_SIZE,
+  type RecentAnalysisItem,
 } from '@/services/query/recentVideos';
 
-const makeDoc = (data: Record<string, unknown>) => ({
-  data: () => data,
-});
-
-const makeSnapshot = (docs: Array<ReturnType<typeof makeDoc>>) => ({
-  docs,
-  size: docs.length,
-  forEach: (callback: (doc: ReturnType<typeof makeDoc>) => void) => docs.forEach(callback),
-});
-
-const baseDoc = {
-  videoId: 'video-1',
+const baseItem: RecentAnalysisItem = {
+  audio_id: 'abcd1234efgh',
+  model: 'btc-sl',
+  filename: 'song.mp3',
   title: 'Song One',
-  channelTitle: 'Channel',
-  thumbnail: 'https://img.example/thumb.jpg',
-  createdAt: { seconds: 100 },
-  audioDuration: 185,
-  beatModel: 'madmom',
-  chordModel: 'btc-sl',
+  duration: 185,
+  created_at: 100,
+  hits: 9,
   bpm: 120,
-  timeSignature: 4,
   keySignature: 'C major',
-  beats: [{ time: 0 }],
-  chords: [{ chord: 'C' }],
+  timeSignature: 4,
 };
 
-describe('recent videos query fetcher', () => {
+const fetchMock = jest.fn();
+
+const okResponse = (items: RecentAnalysisItem[]) =>
+  Promise.resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({ success: true, items, total: items.length }),
+  } as unknown as Response);
+
+describe('recentVideos (local cache build)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (global as unknown as { fetch: jest.Mock }).fetch = fetchMock;
   });
 
-  it('maps valid Firestore transcription docs into homepage video cards', () => {
-    expect(mapTranscriptionDocToRecentVideo(baseDoc)).toEqual(expect.objectContaining({
-      videoId: 'video-1',
-      title: 'Song One',
-      processedAt: 100_000,
-      duration: 185,
-      keySignature: 'C major',
+  it('maps analyses rows into home page cards (audio_id is the videoId)', () => {
+    expect(mapRecentAnalysisToVideo(baseItem)).toEqual(
+      expect.objectContaining({
+        videoId: 'abcd1234efgh',
+        title: 'Song One',
+        processedAt: 100_000,
+        duration: 185,
+        bpm: 120,
+        keySignature: 'C major',
+        usageCount: 9,
+      }),
+    );
+  });
+
+  it('drops rows without an audio_id and rows already in the list', () => {
+    expect(mapRecentAnalysisToVideo({ ...baseItem, audio_id: null })).toBeNull();
+    expect(
+      mapRecentAnalysisToVideo(baseItem, new Set([baseItem.audio_id as string])),
+    ).toBeNull();
+  });
+
+  it('hides a missing or zero bpm', () => {
+    expect(mapRecentAnalysisToVideo({ ...baseItem, bpm: 0 })?.bpm).toBeUndefined();
+    expect(mapRecentAnalysisToVideo({ ...baseItem, bpm: null })?.bpm).toBeUndefined();
+  });
+
+  it('requests limit+1 on the first page and flags that another page exists', async () => {
+    const items = Array.from({ length: RECENT_VIDEOS_PAGE_SIZE + 1 }, (_, index) => ({
+      ...baseItem,
+      audio_id: `audio-${index}`,
     }));
-  });
+    fetchMock.mockReturnValueOnce(okResponse(items));
 
-  it('filters documents by selected key using searchable keys or derived keys', () => {
-    expect(transcriptionMatchesSelectedKey({ ...baseDoc, searchableKeys: ['c major'] }, 'C major')).toBe(true);
-    expect(transcriptionMatchesSelectedKey({ ...baseDoc, searchableKeys: ['g minor'] }, 'C major')).toBe(false);
-    expect(transcriptionMatchesSelectedKey({ ...baseDoc, searchableKeys: undefined, keySignature: 'A minor' }, 'A minor')).toBe(true);
-  });
-
-  it('fetches the primary recent videos page', async () => {
-    mockGetDocs.mockResolvedValueOnce(makeSnapshot([makeDoc(baseDoc)]));
-
-    const result = await fetchRecentVideosPage({
+    const page = await fetchRecentVideosPage({
       selectedKey: ALL_KEYS_VALUE,
       pageParam: createInitialRecentVideosPageParam(),
     });
 
-    expect(result.queryMode).toBe('primary');
-    expect(result.videos).toHaveLength(1);
-    expect(result.videos[0].videoId).toBe('video-1');
-    expect(result.hasMore).toBe(false);
-    expect(mockGetDocs).toHaveBeenCalledTimes(1);
+    const requested = String(fetchMock.mock.calls[0][0]);
+    expect(requested).toContain(`limit=${RECENT_VIDEOS_PAGE_SIZE + 1}`);
+    expect(requested).toContain('offset=0');
+    expect(requested).not.toContain('key=');
+    expect(page.queryMode).toBe('local');
+    expect(page.videos).toHaveLength(RECENT_VIDEOS_PAGE_SIZE);
+    expect(page.hasMore).toBe(true);
+    expect(page.lastVisible).toBe(RECENT_VIDEOS_PAGE_SIZE);
   });
 
-  it('falls back to legacy scanning when the first primary page is empty', async () => {
-    mockGetDocs
-      .mockResolvedValueOnce(makeSnapshot([]))
-      .mockResolvedValueOnce(makeSnapshot([makeDoc({ ...baseDoc, videoId: 'legacy-1' })]));
+  it('sets hasMore=false and lastVisible=null when the data is under one page', async () => {
+    fetchMock.mockReturnValueOnce(okResponse([baseItem]));
 
-    const result = await fetchRecentVideosPage({
+    const page = await fetchRecentVideosPage({
       selectedKey: ALL_KEYS_VALUE,
       pageParam: createInitialRecentVideosPageParam(),
     });
 
-    expect(result.queryMode).toBe('legacy');
-    expect(result.videos).toEqual([expect.objectContaining({ videoId: 'legacy-1' })]);
-    expect(mockGetDocs).toHaveBeenCalledTimes(2);
+    expect(page.videos).toHaveLength(1);
+    expect(page.hasMore).toBe(false);
+    expect(page.lastVisible).toBeNull();
   });
 
-  it('uses the supplied cursor for subsequent pages', async () => {
-    const cursor = makeDoc(baseDoc) as never;
-    mockGetDocs.mockResolvedValueOnce(makeSnapshot([makeDoc({ ...baseDoc, videoId: 'video-2' })]));
+  it('forwards the selected key to the backend and uses the cursor as offset', async () => {
+    fetchMock.mockReturnValueOnce(okResponse([]));
 
     await fetchRecentVideosPage({
-      selectedKey: ALL_KEYS_VALUE,
-      pageParam: {
-        cursor,
-        mode: 'primary',
-        existingVideoIds: ['video-1'],
-      },
+      selectedKey: 'A major',
+      pageParam: { cursor: 24, mode: 'local', existingVideoIds: ['audio-0'] },
     });
 
-    expect(mockStartAfter).toHaveBeenCalledWith(cursor);
+    const requested = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(requested.searchParams.get('offset')).toBe('24');
+    expect(requested.searchParams.get('key')).toBe('A major');
+  });
+
+  it('degrades to an empty page instead of throwing when the backend errors', async () => {
+    fetchMock.mockReturnValueOnce(
+      Promise.resolve({ ok: false, status: 500, json: async () => ({}) } as unknown as Response),
+    );
+
+    const page = await fetchRecentVideosPage({
+      selectedKey: ALL_KEYS_VALUE,
+      pageParam: createInitialRecentVideosPageParam(),
+    });
+
+    expect(page.videos).toEqual([]);
+    expect(page.hasMore).toBe(false);
   });
 });

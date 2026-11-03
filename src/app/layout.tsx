@@ -5,7 +5,7 @@ import '../styles/analysis-embedded.css';
 import '../styles/chord-grid.css';
 import { Providers } from './providers';
 import ClientErrorBoundary from '@/components/common/ClientErrorBoundary';
-import FirebaseInitializer from '@/components/layout/FirebaseInitializer';
+
 import ServiceWorkerRegistration from '@/components/layout/ServiceWorkerRegistration';
 import Footer from '@/components/common/Footer';
 import PerformanceMonitor from '@/components/layout/PerformanceMonitor';
@@ -156,7 +156,7 @@ export default function RootLayout({
         />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var noisyLog=/^\\[Fast Refresh\\]|^\\[HMR\\]\\s+connected|^\\[BEAT_DRIFT_DEBUG\\]|Found existing audio file in Firebase Storage/;var noisyErr=/firestore\\.googleapis\\.com\\/google\\.firestore\\.v1\\.Firestore\\/Listen\\/channel|Fetch API cannot load .*Listen\\/channel.*access control checks/i;var ol=console.log,ow=console.warn,oe=console.error;console.log=function(){var s=Array.prototype.join.call(arguments,' ');if(noisyLog.test(s))return;ol.apply(console,arguments)};console.warn=function(){var s=Array.prototype.join.call(arguments,' ');if(noisyErr.test(s))return;ow.apply(console,arguments)};console.error=function(){var s=Array.prototype.join.call(arguments,' ');if(noisyErr.test(s))return;oe.apply(console,arguments)}}catch(e){}})()`
+            __html: `(function(){try{var noisyLog=/^\\[Fast Refresh\\]|^\\[HMR\\]\\s+connected|^\\[BEAT_DRIFT_DEBUG\\]/;var ol=console.log;console.log=function(){var s=Array.prototype.join.call(arguments,' ');if(noisyLog.test(s))return;ol.apply(console,arguments)}}catch(e){}})()`
           }}
         />
         {/* Critical CSS inlined for performance - eliminates render blocking */}
@@ -222,7 +222,6 @@ export default function RootLayout({
             <CriticalPerformanceOptimizer />
             <DesktopPerformanceOptimizer />
             <ServiceWorkerRegistration />
-            <FirebaseInitializer />
             {process.env.NODE_ENV === 'development' ? <PerformanceMonitor /> : null}
             <CorsErrorSuppression />
             {process.env.NODE_ENV === 'development' ? <DevIndicatorHider /> : null}

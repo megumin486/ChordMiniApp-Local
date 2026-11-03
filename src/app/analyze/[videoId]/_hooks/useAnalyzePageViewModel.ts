@@ -25,7 +25,10 @@ import { useAudioInteractions } from '@/hooks/chord-playback/useAudioInteraction
 import { useScrollAndAnimation } from '@/hooks/scroll/useScrollAndAnimation';
 import { usePlaybackState } from '@/hooks/chord-playback/usePlaybackState';
 import { useLoopPlayback, resolveLoopRange } from '@/hooks/chord-playback/useLoopPlayback';
-import { useApiKeys } from '@/hooks/settings/useApiKeys';
+import {
+  LYRICS_TRANSCRIPTION_AVAILABLE,
+  LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+} from '@/utils/localCapabilities';
 import { simplifyChordArray, simplifySequenceCorrections } from '@/utils/chordSimplification';
 import type { UseChordPlaybackReturn } from '@/hooks/chord-playback/useChordPlayback';
 import {
@@ -43,7 +46,7 @@ import {
 } from '@/utils/analysisDurationLimit';
 import { requestSheetSageTranscription } from '@/services/sheetsage/sheetSageTranscriptionClient';
 import { getCachedSheetSageMelody } from '@/services/sheetsage/sheetSageCacheClient';
-import { useFirebaseReadiness } from '@/hooks/firebase/useFirebaseReadiness';
+import { useAnalysisReadiness } from '@/hooks/analyze/useAnalysisReadiness';
 import { useYouTubeSetup } from '@/hooks/youtube/useYouTubeSetup';
 import { useSegmentationState } from '@/hooks/lyrics/useSegmentationState';
 import { useTabsAndEditing } from '@/hooks/ui/useTabsAndEditing';
@@ -63,9 +66,7 @@ import type { AnalyzePageViewModel } from '../_types/analyzePageViewModel';
 import { useAnalyzePageStoreSync } from './useAnalyzePageStoreSync';
 import { useAnalyzePageLifecycleReset } from './useAnalyzePageLifecycleReset';
 import { shouldShowSnowEffect } from '@/utils/seasonalEffects';
-import { searchLyricsWithFallback, type LyricsServiceResponse } from '@/services/lyrics/lyricsService';
 import { resolveLyricsForChatbotContext } from '@/utils/chatbotLyrics';
-import type { LRCLibCandidate } from '@/services/lyrics/lrclibService';
 import type { BeatGridTimedLyrics } from '@/components/chord-analysis/GridLyricsRow';
 
 interface UseAnalyzePageViewModelParams {
@@ -121,7 +122,6 @@ export function useAnalyzePageViewModel({
     failProcessing,
   } = useProcessing();
   const { theme } = useTheme();
-  const { isServiceAvailable, getServiceMessage } = useApiKeys();
 
   const {
     state: audioProcessingState,
@@ -199,7 +199,7 @@ export function useAnalyzePageViewModel({
     initialChordDetector: routeParams.chordModel,
   });
 
-  const { firebaseReady } = useFirebaseReadiness();
+  const { ready: analysisReady } = useAnalysisReadiness();
   const { isPlaying, currentTime, duration, playbackRate } = audioPlayerState;
   const effectiveAnalysisDuration = duration > 0 ? duration : parseAnalysisDurationSeconds(durationFromSearch);
 
@@ -260,7 +260,7 @@ export function useAnalyzePageViewModel({
     durationFromSearch,
     channelFromSearch,
     thumbnailFromSearch,
-    firebaseReady,
+    analysisReady,
     modelsInitialized,
     beatDetector,
     chordDetector,
@@ -615,22 +615,6 @@ export function useAnalyzePageViewModel({
   const setIsMelodicTranscriptionPlaybackEnabled = useUIStore((state) => state.setIsMelodicTranscriptionPlaybackEnabled);
 
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
-  const [isGridLyricsVisible, setIsGridLyricsVisible] = useState(false);
-  const [isLyricsSearchOpen, setIsLyricsSearchOpen] = useState(false);
-  const [lyricsSearchQuery, setLyricsSearchQuery] = useState(titleFromSearch || videoTitle || '');
-  const [lyricsSearchResult, setLyricsSearchResult] = useState<LyricsServiceResponse | null>(null);
-  const [isGridLyricsSearching, setIsGridLyricsSearching] = useState(false);
-  const [gridLyricsError, setGridLyricsError] = useState<string | null>(null);
-  const [appliedGridLyrics, setAppliedGridLyrics] = useState<{
-    timedLyrics?: BeatGridTimedLyrics;
-    plainLyrics?: string;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!lyricsSearchQuery && (videoTitle || titleFromSearch)) {
-      setLyricsSearchQuery(videoTitle || titleFromSearch || '');
-    }
-  }, [lyricsSearchQuery, titleFromSearch, videoTitle]);
 
   useEffect(() => {
     const shouldMinimize = isChatbotOpen
@@ -676,13 +660,15 @@ export function useAnalyzePageViewModel({
 
   useYouTubeSetup(videoId, setAudioProcessingState);
 
-  const visibleGridLyrics = isGridLyricsVisible ? appliedGridLyrics?.timedLyrics ?? null : null;
-  const visiblePlainLyrics = isGridLyricsVisible ? appliedGridLyrics?.plainLyrics ?? null : null;
+  // Grid lyrics came from the LRCLIB search, which was removed in Phase 5.
+  // Keep the props wired so the chord grid / piano roll code paths stay intact.
+  const visibleGridLyrics: BeatGridTimedLyrics | null = null;
+  const visiblePlainLyrics: string | null = null;
 
   const chatbotLyrics = useMemo(() => resolveLyricsForChatbotContext(
     lyrics,
-    visibleGridLyrics?.lyrics,
-  ), [lyrics, visibleGridLyrics]);
+    undefined,
+  ), [lyrics]);
 
   const songContext = useMemo(() => ({
     videoId,
@@ -763,116 +749,6 @@ export function useAnalyzePageViewModel({
     setIsChatbotOpen(!isChatbotOpen);
   }, [isChatbotOpen]);
 
-  const applyLRCLibCandidate = useCallback((candidate: LRCLibCandidate) => {
-    if ((candidate.lyric_mode === 'word' || candidate.lyric_mode === 'line') && candidate.lyrics) {
-      setAppliedGridLyrics({
-        timedLyrics: {
-          mode: candidate.lyric_mode,
-          lyrics: candidate.lyrics,
-        },
-      });
-      setIsGridLyricsVisible(true);
-      setIsLyricsSearchOpen(false);
-      return;
-    }
-
-    if (candidate.plain_lyrics) {
-      setAppliedGridLyrics({ plainLyrics: candidate.plain_lyrics });
-      setIsGridLyricsVisible(true);
-      setIsLyricsSearchOpen(false);
-    }
-  }, []);
-
-  const runLRCLibLyricsSearch = useCallback(async (queryOverride?: string) => {
-    const query = (queryOverride ?? lyricsSearchQuery).trim() || (videoTitle || titleFromSearch || '').trim();
-    if (!query) return;
-
-    setLyricsSearchQuery(query);
-    setIsLyricsSearchOpen(true);
-    setIsGridLyricsSearching(true);
-    setGridLyricsError(null);
-
-    const expectedDuration = duration > 0
-      ? duration
-      : parseAnalysisDurationSeconds(durationFromSearch);
-
-    try {
-      const result = await searchLyricsWithFallback({
-        search_query: query,
-        duration: expectedDuration || undefined,
-        prefer_synchronized: true,
-      });
-
-      setLyricsSearchResult(result);
-      if (!result.success) {
-        setGridLyricsError(result.error || 'No lyrics found on LRCLIB.');
-        return;
-      }
-
-      if (
-        result.confidence === 'high'
-        && (result.lyric_mode === 'word' || result.lyric_mode === 'line')
-        && result.lyrics
-      ) {
-        setAppliedGridLyrics({
-          timedLyrics: {
-            mode: result.lyric_mode,
-            lyrics: result.lyrics,
-          },
-        });
-        setIsGridLyricsVisible(true);
-      }
-    } catch (error) {
-      setGridLyricsError(error instanceof Error ? error.message : 'Failed to search LRCLIB.');
-    } finally {
-      setIsGridLyricsSearching(false);
-    }
-  }, [duration, durationFromSearch, lyricsSearchQuery, titleFromSearch, videoTitle]);
-
-  const toggleLyricsPanel = useCallback(() => {
-    if (isGridLyricsVisible) {
-      setIsGridLyricsVisible(false);
-      setIsLyricsSearchOpen(false);
-      return;
-    }
-
-    if (isLyricsSearchOpen) {
-      setIsLyricsSearchOpen(false);
-      return;
-    }
-
-    setIsGridLyricsVisible(Boolean(appliedGridLyrics));
-    setIsLyricsSearchOpen(true);
-    if (!lyricsSearchResult && !isGridLyricsSearching) {
-      void runLRCLibLyricsSearch(videoTitle || titleFromSearch || lyricsSearchQuery);
-    }
-  }, [
-    appliedGridLyrics,
-    isGridLyricsSearching,
-    isGridLyricsVisible,
-    isLyricsSearchOpen,
-    lyricsSearchQuery,
-    lyricsSearchResult,
-    runLRCLibLyricsSearch,
-    titleFromSearch,
-    videoTitle,
-  ]);
-
-  useEffect(() => {
-    if (appliedGridLyrics?.timedLyrics?.mode === 'line') {
-      addToast({
-        title: 'Line-Synced Lyrics Loaded',
-        description: 'Word highlight is estimated because word-level timings are unavailable.',
-        color: 'default',
-        timeout: 18000,
-        shouldShowTimeoutProgress: true,
-        classNames: mergeToastClassNames({
-          icon: 'text-blue-500',
-          title: 'text-blue-600 dark:text-blue-400',
-        }),
-      });
-    }
-  }, [appliedGridLyrics]);
 
   const updateCachedLyricsQuery = useCallback((lyricsData: LyricsData) => {
     const audioUrl = audioProcessingState.audioUrl || '';
@@ -884,8 +760,8 @@ export function useAnalyzePageViewModel({
   }, [audioProcessingState.audioUrl, queryClient, videoId]);
 
   const transcribeLyricsWithAI = useCallback(async () => {
-    if (!isServiceAvailable('musicAi')) {
-      setLyricsError(getServiceMessage('musicAi'));
+    if (!LYRICS_TRANSCRIPTION_AVAILABLE) {
+      setLyricsError(LYRICS_TRANSCRIPTION_UNAVAILABLE_MESSAGE);
       return;
     }
 
@@ -940,8 +816,6 @@ export function useAnalyzePageViewModel({
     chordDetector,
     chordDetectorRef,
     durationFromSearch,
-    getServiceMessage,
-    isServiceAvailable,
     lyrics,
     setActiveTab,
     setAudioProcessingState,
@@ -1220,7 +1094,7 @@ export function useAnalyzePageViewModel({
   // When pitch-shift is ON, the pitch-shift toggle effect in usePitchShiftAudio
   // owns muting (mutes YouTube + audio element). If we unconditionally unmute
   // YouTube here on youtubePlayer load, we override the pitch-shift mute and
-  // the user hears BOTH the YouTube source audio AND the Firebase pitch-shifted
+  // the user hears BOTH the YouTube source audio AND the locally pitch-shifted
   // audio simultaneously — which also creates a perceived timing mismatch.
   useEffect(() => {
     if (youtubePlayer) {
@@ -1347,7 +1221,7 @@ export function useAnalyzePageViewModel({
     toggleEnharmonicCorrection,
     isTranscribingLyrics,
     hasCachedLyrics,
-    canTranscribe: isServiceAvailable('musicAi') && !!audioProcessingState.audioUrl,
+    canTranscribe: LYRICS_TRANSCRIPTION_AVAILABLE && !!audioProcessingState.audioUrl,
     transcribeLyricsWithAI,
     lyricsError,
     activeTab,
@@ -1543,20 +1417,8 @@ export function useAnalyzePageViewModel({
     countdownDisplay,
     toggleCountdown,
     isChatbotOpen,
-    isLyricsPanelOpen: isGridLyricsVisible || isLyricsSearchOpen || isGridLyricsSearching,
+    isLyricsPanelOpen: false,
     toggleChatbot,
-    toggleLyricsPanel,
-    lyricsSearchPopover: {
-      isOpen: isLyricsSearchOpen,
-      query: lyricsSearchQuery,
-      isLoading: isGridLyricsSearching,
-      error: gridLyricsError,
-      result: lyricsSearchResult,
-      onQueryChange: setLyricsSearchQuery,
-      onClose: () => setIsLyricsSearchOpen(false),
-      onSearch: () => void runLRCLibLyricsSearch(),
-      onApplyCandidate: applyLRCLibCandidate,
-    },
     segmentation: {
       isVisible: showSegmentation && !!segmentationData,
       hasData: !!segmentationData,

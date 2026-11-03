@@ -4,7 +4,7 @@ jest.mock('@/utils/environmentUtils', () => ({
 
 import {
   isDirectUrl,
-  isFirebaseStorageUrl,
+  isCloudStorageUrl,
   parseAndValidateAudioSourceUrl,
   validateFirebaseStorageUrl,
   validateUrlAccessibility,
@@ -29,10 +29,10 @@ describe('urlValidationUtils', () => {
   });
 
   it('identifies Firebase Storage URLs and direct URLs', () => {
-    expect(isFirebaseStorageUrl('https://firebasestorage.googleapis.com/v0/b/x')).toBe(true);
-    expect(isFirebaseStorageUrl('https://storage.googleapis.com/bucket/file.mp3')).toBe(true);
-    expect(isFirebaseStorageUrl('https://firebasestorage.googleapis.com.evil.test/file.mp3')).toBe(false);
-    expect(isFirebaseStorageUrl('https://example.com/file.mp3')).toBe(false);
+    expect(isCloudStorageUrl('https://firebasestorage.googleapis.com/v0/b/x')).toBe(true);
+    expect(isCloudStorageUrl('https://storage.googleapis.com/bucket/file.mp3')).toBe(true);
+    expect(isCloudStorageUrl('https://firebasestorage.googleapis.com.evil.test/file.mp3')).toBe(false);
+    expect(isCloudStorageUrl('https://example.com/file.mp3')).toBe(false);
 
     expect(isDirectUrl('https://example.com/file.mp3')).toBe(true);
     expect(isDirectUrl('https://firebasestorage.googleapis.com/v0/b/x')).toBe(false);

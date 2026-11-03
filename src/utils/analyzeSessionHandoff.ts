@@ -1,6 +1,6 @@
 import { AnalysisResult } from '@/services/chord-analysis/chordRecognitionService';
 import { AudioProcessingState } from '@/services/audio/audioProcessingService';
-import { safeSessionStorage } from '@/utils/clientOnlyFirebase';
+import { safeSessionStorage } from '@/utils/browserStorage';
 
 const ANALYZE_HANDOFF_STORAGE_KEY = 'chordmini_analyze_handoff';
 const ANALYZE_HANDOFF_MAX_AGE_MS = 10 * 60 * 1000;
