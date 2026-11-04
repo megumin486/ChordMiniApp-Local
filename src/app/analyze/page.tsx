@@ -96,6 +96,11 @@ import ResultsTabs from '@/components/homepage/ResultsTabs';
 import type { TabKey } from '@/components/homepage/ResultsTabs';
 import type { LyricsData } from '@/types/musicAiTypes';
 import { parseLyricsFile, resolveLocalLyrics } from '@/utils/lyrics/localLyrics';
+import {
+  extractLyricsFromAudioUrl,
+  loadLyricsForAudio,
+  saveLyricsForAudio,
+} from '@/utils/lyrics/lyricsCache';
 import { toGridPlainLyrics, toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
 import { requestSheetSageTranscription } from '@/services/sheetsage/sheetSageTranscriptionClient';
 import { useSheetSageBackendAvailability } from '@/hooks/sheetsage/useSheetSageBackendAvailability';
@@ -122,10 +127,24 @@ export default function LocalAudioAnalyzePage() {
   const objectUrlRef = useRef<string | null>(null);
   const durationLimitToastShownRef = useRef(false);
 
-  const { lyrics, showLyrics, hasCachedLyrics, completeLyricsTranscription, setLyrics, setShowLyrics } = useLyricsState();
+  const {
+    lyrics,
+    showLyrics,
+    hasCachedLyrics,
+    completeLyricsTranscription,
+    setLyrics,
+    setShowLyrics,
+    setHasCachedLyrics,
+  } = useLyricsState();
   // Local lyric sources (fully offline): an optional lyric file the user picks,
   // plus lyric tags embedded in the audio file itself.
   const [lyricsFile, setLyricsFile] = useState<File | null>(null);
+  // Shown in the pickers: after reopening a cached analysis there is no File
+  // object any more, only the name the backend recorded for that audio.
+  const [restoredAudioName, setRestoredAudioName] = useState<string | null>(null);
+  const [lyricsSourceName, setLyricsSourceName] = useState<string | null>(null);
+  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
+  const lyricsFileInputRef = useRef<HTMLInputElement | null>(null);
   // Local lyrics are laid into the chord grid rows automatically (no toggle):
   // same data the Lyrics & Chords tab renders, just fed to the grid too.
   const gridTimedLyrics = useMemo(() => toGridTimedLyrics(lyrics), [lyrics]);
@@ -541,6 +560,7 @@ export default function LocalAudioAnalyzePage() {
 
     const file = files[0];
     setLyricsFile(file);
+    setLyricsSourceName(file.name);
 
     try {
       // Prefer the audio's embedded tags when a lyric file is also present?
@@ -568,6 +588,7 @@ export default function LocalAudioAnalyzePage() {
 
     const file = files[0];
     setAudioFile(file);
+    setRestoredAudioName(null);
 
     // Local lyrics: surface lyric tags embedded in the uploaded audio file
     // (and/or the lyric file already picked). No network involved.
@@ -575,6 +596,11 @@ export default function LocalAudioAnalyzePage() {
       .then((result) => {
         if (result) {
           completeLyricsTranscription(result.data);
+          setLyricsSourceName(
+            result.source === 'lyrics-file'
+              ? (lyricsFile?.name ?? null)
+              : `${file.name} (embedded tags)`,
+          );
           addToast({
             title: 'Lyrics loaded',
             description: result.source === 'lyrics-file'
@@ -689,6 +715,7 @@ export default function LocalAudioAnalyzePage() {
     setKeyConfidence(null);
     setKeyModulations([]);
     setAudioFile(null);
+    setRestoredAudioName(restored.filename || null);
     if (typeof restored.duration === 'number' && restored.duration > 0) {
       setDuration(restored.duration);
     }
@@ -704,6 +731,36 @@ export default function LocalAudioAnalyzePage() {
     setStage('complete');
     setProgress(100);
     setStatusMessage('Loaded from local cache');
+
+    // Cached rows only carry chords and beats: bring the local lyrics back from
+    // the kv store, or re-read the tags embedded in the stored audio.
+    try {
+      const cachedLyrics = await loadLyricsForAudio(audioId);
+      if (cachedLyrics) {
+        completeLyricsTranscription(cachedLyrics.data);
+        setHasCachedLyrics(true);
+        setLyricsSourceName(cachedLyrics.name);
+      } else {
+        const extractedLyrics = await extractLyricsFromAudioUrl(
+          restored.audioUrl,
+          restored.filename,
+        );
+        if (extractedLyrics) {
+          const label = restored.filename ? `${restored.filename} (embedded tags)` : null;
+          completeLyricsTranscription(extractedLyrics);
+          setHasCachedLyrics(true);
+          setLyricsSourceName(label);
+          void saveLyricsForAudio(audioId, extractedLyrics, label);
+        } else {
+          setLyrics(null);
+          setShowLyrics(false);
+          setHasCachedLyrics(false);
+          setLyricsSourceName(null);
+        }
+      }
+    } catch {
+      // Lyrics are optional here: never block a restored analysis over them.
+    }
     // Same copy and styling as the original project's "Analysis Complete" toast (ProcessingStatusBanner:190)
     addToast({
       title: 'Analysis Complete',
@@ -718,7 +775,7 @@ export default function LocalAudioAnalyzePage() {
         title: 'text-success-600 dark:text-success-400',
       }),
     });
-  }, []);
+  }, [completeLyricsTranscription, setLyrics, setShowLyrics, setHasCachedLyrics, setLyricsSourceName]);
 
   // Process and analyze the audio file
   const processAudioFile = async () => {
@@ -1307,6 +1364,14 @@ const simplifiedChordGridData = useMemo(() => {
     lyrics, showLyrics, hasCachedLyrics
   ]);
 
+  // Keep lyrics with their cached analysis so reopening it brings them back
+  // (see openCachedAnalysis). Keyed by the content-addressed audio id.
+  useEffect(() => {
+    const audioId = analysisResults?.audioId;
+    if (!audioId || !lyrics || lyrics.lines.length === 0) return;
+    void saveLyricsForAudio(audioId, lyrics, lyricsSourceName);
+  }, [analysisResults?.audioId, lyrics, lyricsSourceName]);
+
   useEffect(() => {
     useAnalysisStore.getState().clearSheetSage();
     setIsMelodicTranscriptionPlaybackEnabled(false);
@@ -1355,28 +1420,42 @@ const simplifiedChordGridData = useMemo(() => {
                 {/* RIGHT: File upload and Analyze controls */}
                 <div className="flex flex-row gap-2 items-center ml-auto pl-2 md:pl-6">
                   <div className="relative inline-block">
-                    <label className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-white font-medium py-2 px-4 rounded-md cursor-pointer transition-colors">
-                      {audioFile ? audioFile.name : 'Choose Audio File'}
-                      <input
-                        type="file"
-                        accept="audio/*"
-                        onChange={handleFileChange}
-                        className="hidden"
-                      />
-                    </label>
+                    <input
+                      ref={audioFileInputRef}
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <Button
+                      onClick={() => audioFileInputRef.current?.click()}
+                      color="default"
+                      variant="flat"
+                      size="md"
+                      className="font-medium"
+                    >
+                      {audioFile?.name ?? restoredAudioName ?? 'Choose Audio File'}
+                    </Button>
                   </div>
 
-                  {/* Local lyric sheet picker — same control shape as the audio picker */}
+                  {/* Local lyric sheet picker, same control as the audio picker */}
                   <div className="relative inline-block">
-                    <label className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-white font-medium py-2 px-4 rounded-md cursor-pointer transition-colors">
-                      {lyricsFile ? lyricsFile.name : 'Choose Lyrics File'}
-                      <input
-                        type="file"
-                        accept=".lrc,.srt,.txt,.yaml,.yml"
-                        onChange={handleLyricsFileChange}
-                        className="hidden"
-                      />
-                    </label>
+                    <input
+                      ref={lyricsFileInputRef}
+                      type="file"
+                      accept=".lrc,.srt,.txt,.yaml,.yml"
+                      onChange={handleLyricsFileChange}
+                      className="hidden"
+                    />
+                    <Button
+                      onClick={() => lyricsFileInputRef.current?.click()}
+                      color="default"
+                      variant="flat"
+                      size="md"
+                      className="font-medium"
+                    >
+                      {lyricsFile?.name ?? lyricsSourceName ?? 'Choose Lyrics File'}
+                    </Button>
                   </div>
 
                   <Button
@@ -1638,7 +1717,7 @@ const simplifiedChordGridData = useMemo(() => {
                           try { audioRef.current.currentTime = t; } catch {}
                         }
                       }}
-                      disabled={!audioFile}
+                      disabled={!audioFile && !audioProcessingState.audioUrl}
                       bpm={analysisResults?.beatDetectionResult?.bpm}
                     />
                   </div>
