@@ -260,42 +260,26 @@ class BeatTransformerDetector:
     def __init__(self, checkpoint_path=None):
         """Initialize the Beat Transformer detector with a checkpoint file"""
 
-        # Import DeviceManager for sophisticated device detection
+        # Device choice: CPU by default, opt in with CHORDMINI_DEVICE
+        # (see python_backend/utils/device.py). The previous block looked for a
+        # DeviceManager that does not exist in this tree and, on ImportError,
+        # enabled GPU only when is_local_development() was true -- a helper
+        # that treats an exported PORT as a cloud deployment, which is exactly
+        # what start.sh exports. The result was CPU everywhere, silently, with
+        # no way to configure it.
         try:
-            # Add the models directory to Python path for absolute imports
-            import sys
-            models_path = os.path.dirname(__file__)  # This is the models directory
-            if models_path not in sys.path:
-                sys.path.insert(0, models_path)
+            from utils.device import resolve_device
+        except ImportError:
+            # `models` can also be imported on its own (cwd outside
+            # python_backend), in which case the utils package is not on
+            # sys.path yet.
+            backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if backend_dir not in sys.path:
+                sys.path.insert(0, backend_dir)
+            from utils.device import resolve_device
 
-            from ChordMini.modules.utils.device import get_device_manager
-
-            # Determine if GPU acceleration should be enabled
-            enable_gpu = is_local_development()
-
-            if enable_gpu:
-                # Use DeviceManager for local development (CUDA > MPS > CPU)
-                device_manager = get_device_manager(verbose=DEBUG)
-                self.device = device_manager.device
-                self.device_manager = device_manager
-                if DEBUG:
-                    print(f"GPU acceleration enabled for local development. Using device: {self.device}")
-            else:
-                # Force CPU for production deployments
-                self.device = torch.device("cpu")
-                self.device_manager = None
-                if DEBUG:
-                    print("GPU acceleration disabled for production deployment. Using CPU.")
-
-        except ImportError as e:
-            if DEBUG:
-                print(f"Warning: DeviceManager not available: {e}. Falling back to basic device detection.")
-            # Fallback to basic device detection if DeviceManager is not available
-            if is_local_development():
-                self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            else:
-                self.device = torch.device("cpu")
-            self.device_manager = None
+        self.device = resolve_device("beat-transformer", verbose=DEBUG)
+        self.device_manager = None
 
         # Configure environment-aware processing modes
         self._configure_processing_modes()
@@ -383,41 +367,35 @@ class BeatTransformerDetector:
                 print("🏭 Production mode: Spleeter enabled with CPU-only processing")
 
     def _configure_spleeter_gpu(self):
-        """Configure Spleeter GPU usage based on environment"""
-        if self.enable_spleeter_gpu and is_local_development():
+        """Keep Spleeter/TensorFlow's view of the GPU consistent with CHORDMINI_DEVICE.
+
+        This used to export CUDA_VISIBLE_DEVICES=-1 whenever Spleeter GPU was
+        off -- which in this local build is always, because
+        is_local_development() reads the launcher's PORT as a cloud deployment.
+        That was a process-wide CPU lock: it hid the GPU from the very variable
+        that is supposed to configure it. Now the resolved device decides, and
+        a GPU the operator asked for is not hidden.
+        """
+        if self.device.type == "cuda":
+            # GPU requested: leave CUDA_VISIBLE_DEVICES alone (it may be the
+            # operator's own card selection) and try to enable TF's GPU.
             try:
-                # Remove CUDA_VISIBLE_DEVICES restriction for local development
-                if 'CUDA_VISIBLE_DEVICES' in os.environ:
-                    del os.environ['CUDA_VISIBLE_DEVICES']
-                    if DEBUG:
-                        print("🔧 Removed CUDA_VISIBLE_DEVICES restriction for Spleeter GPU acceleration")
-
-                # Configure TensorFlow for GPU if available (including MPS support)
-                try:
-                    # CRITICAL FIX: Use simplified and robust GPU configuration
-                    gpu_configured = self._configure_tensorflow_gpu()
-
-                    if DEBUG:
-                        if gpu_configured:
-                            print("✅ Spleeter GPU acceleration configured successfully")
-                        else:
-                            print("⚠️  Spleeter will use CPU (no GPU acceleration available)")
-
-                except ImportError:
-                    if DEBUG:
-                        print("⚠️  TensorFlow not available, Spleeter will use CPU")
-                except Exception as e:
-                    if DEBUG:
-                        print(f"⚠️  Could not configure Spleeter GPU: {e}")
-
+                gpu_configured = self._configure_tensorflow_gpu()
+                if DEBUG:
+                    print(f"Spleeter GPU: {'configured' if gpu_configured else 'not available, CPU'}")
+            except ImportError:
+                if DEBUG:
+                    print("TensorFlow not available, Spleeter will use CPU")
             except Exception as e:
                 if DEBUG:
-                    print(f"⚠️  Error configuring Spleeter GPU: {e}")
-        else:
-            # Force CPU for production or when GPU disabled
-            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-            if DEBUG:
-                print("🔒 Spleeter configured for CPU-only operation (production mode)")
+                    print(f"Could not configure Spleeter GPU: {e}")
+            return
+
+        # CPU-only: keep the historical lock so Spleeter/TensorFlow do not grab
+        # a card behind the operator's back.
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        if DEBUG:
+            print("CPU-only: CUDA_VISIBLE_DEVICES=-1 for Spleeter/TensorFlow")
 
     def _fix_spleeter_click_compatibility(self):
         """Comprehensive click compatibility fix for newer click versions"""

@@ -235,6 +235,17 @@ NEXT_PUBLIC_BASE_URL=http://127.0.0.1:3000  # origin used for the app's absolute
 | `FLASK_MAX_CONTENT_LENGTH_MB` | `150` | largest upload the backend accepts |
 | `CORS_ORIGINS` | six local, docker and vercel origins including `http://127.0.0.1:3000` and `http://localhost:3000` | extra origins to allow; **appended** to the built-in list, not a replacement |
 | `PORT` | `5001` | backend port |
+| `CHORDMINI_DEVICE` | `cpu` | compute device for the models the backend loads itself: `cpu`, `auto` (CUDA, then MPS, then CPU), `cuda`, `cuda:N` or `mps`. An unavailable or mistyped value falls back to CPU with one warning |
+
+### GPU (optional, off by default)
+
+A fresh clone runs on CPU, which is what `start.sh` and the screenshots assume. A GPU is never forced, but it is not locked away either: set `CHORDMINI_DEVICE` in the environment that starts the backend, and the launcher passes it through.
+
+```bash
+CHORDMINI_DEVICE=auto ./start.sh --prod
+```
+
+This needs a CUDA build of PyTorch and a card that build has kernels for; otherwise the backend prints one `[device]` line and keeps going on CPU. That second condition is easy to miss: a driver can enumerate a GPU that torch cannot actually execute on — for example an RTX 50-series (Blackwell, `sm_120`) card with a torch build that stops at `sm_90`. `auto` and `cuda` probe the card with a one-element kernel before committing, so they fall back to CPU instead of failing mid-analysis. `cuda` or `cuda:1` selects a specific card, `mps` is for Apple Silicon, and `cpu` (the default) is accepted explicitly too. Choosing a CUDA device also stops the backend from exporting `CUDA_VISIBLE_DEVICES=-1` — the CPU-only lock it used to apply to Spleeter and TensorFlow unconditionally, which is why the setting could not take effect before. The BTC chord models load through the `ChordMini` submodule, which already picks CUDA on its own when torch can see a GPU — so the chord path may use the card while the Beat Transformer stays on CPU until you set this variable.
 
 ## Local data, cache & privacy
 
