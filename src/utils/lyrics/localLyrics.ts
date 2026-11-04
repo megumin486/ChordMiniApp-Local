@@ -328,6 +328,59 @@ async function readFileText(file: File): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Credit / metadata lines that taggers and lyric sites put in front of the real
+ * lyrics ("Lyrics by: ...", "Composer : ...") carry no sung text; they used to
+ * flash on screen for the first second of playback, so they are dropped.
+ *
+ * The CJK labels are written as escapes so this source file stays ASCII-only.
+ */
+const LATIN_CREDIT_PATTERN =
+  /^(?:lyrics?|lyricist|composer?|music|arranger?|arrangement|producer?|performer|artist|album|title|vocal(?:ist)?|singer|mixed|mastered|written|words)\b[^\uFF1A:\n]{0,24}[\uFF1A:]/i;
+
+const CJK_CREDIT_WORDS = [
+  '\u4f5c\u8bcd', // lyrics, simplified
+  '\u4f5c\u8a5e', // lyrics, traditional
+  '\u4f5c\u66f2', // composition
+  '\u7f16\u66f2', // arrangement, simplified
+  '\u7de8\u66f2', // arrangement, traditional
+  '\u6f14\u5531', // performed by
+  '\u6b4c\u624b', // singer
+  '\u5236\u4f5c\u4eba', // producer
+  '\u76d1\u5236', // supervisor, simplified
+  '\u76e3\u88fd', // supervisor, traditional
+  '\u8bcd', // lyrics label
+  '\u8a5e', // lyrics label, traditional
+  '\u66f2', // composition label
+];
+
+const CJK_CREDIT_ALTERNATION = CJK_CREDIT_WORDS.join('|');
+
+const CJK_CREDIT_PATTERN = new RegExp(
+  `^(?:${CJK_CREDIT_ALTERNATION})` +
+    `(?:[\\u30fb/\\u3001&\\s]*(?:${CJK_CREDIT_ALTERNATION}))*` +
+    '\\s*[\\uFF1A:]'
+);
+
+function isCreditLine(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+  return LATIN_CREDIT_PATTERN.test(trimmed) || CJK_CREDIT_PATTERN.test(trimmed);
+}
+
+/**
+ * Drops credit lines from lyrics that were parsed before this filter existed
+ * (cached entries), so replaying an old cache does not flash them either.
+ */
+export function dropCreditLines(lines: LyricLine[]): LyricLine[] {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return [];
+  }
+  return lines.filter((line) => !isCreditLine(line.text));
+}
+
+/**
  * Sort drafts by start time (stable for equal timestamps) and fill in every
  * missing / degenerate endTime:
  *   - a line ends where the next one starts
@@ -335,7 +388,9 @@ async function readFileText(file: File): Promise<string | null> {
  *     than its own start, otherwise DEFAULT_LAST_LINE_SECONDS after its start
  */
 function finalizeLines(drafts: DraftLine[], durationSeconds?: number): LyricLine[] {
-  const indexed = drafts.map((draft, index) => ({ draft, index }));
+  const indexed = drafts
+    .filter((draft) => !isCreditLine(draft.text))
+    .map((draft, index) => ({ draft, index }));
   indexed.sort((a, b) => {
     const delta = a.draft.startTime - b.draft.startTime;
     return delta !== 0 ? delta : a.index - b.index;

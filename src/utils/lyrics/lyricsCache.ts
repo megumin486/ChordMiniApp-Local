@@ -9,7 +9,7 @@
  * the audio comes from the same-origin `/api/audio/<id>` proxy.
  */
 import type { LyricsData } from '@/types/musicAiTypes';
-import { extractEmbeddedLyrics } from '@/utils/lyrics/localLyrics';
+import { dropCreditLines, extractEmbeddedLyrics } from '@/utils/lyrics/localLyrics';
 
 const CACHE_KEY_PREFIX = 'lyrics:';
 const DOCUMENT_KIND = 'local-lyrics';
@@ -63,7 +63,11 @@ export async function saveLyricsForAudio(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key: lyricsCacheKey(audioId),
-        value: { kind: DOCUMENT_KIND, name: name ?? null, data: lyrics },
+        value: {
+          kind: DOCUMENT_KIND,
+          name: name ?? null,
+          data: { ...lyrics, lines: dropCreditLines(lyrics.lines) },
+        },
       }),
     });
     if (!response.ok) return false;
@@ -84,7 +88,13 @@ export async function loadLyricsForAudio(audioId: string): Promise<CachedLyrics 
     );
     if (!response.ok) return null;
     const document: { found?: boolean; value?: unknown } = await response.json();
-    return document.found ? readCachedLyrics(document.value) : null;
+    if (!document.found) return null;
+    const cached = readCachedLyrics(document.value);
+    if (!cached) return null;
+    // Cached entries written before the credit-line filter still carry credits.
+    const lines = dropCreditLines(cached.data.lines);
+    if (lines.length === 0) return null;
+    return { ...cached, data: { ...cached.data, lines } };
   } catch {
     return null;
   }

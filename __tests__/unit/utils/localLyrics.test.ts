@@ -9,6 +9,7 @@
  */
 import type { LyricsData } from '@/types/musicAiTypes';
 import {
+  dropCreditLines,
   extractEmbeddedLyrics,
   parseLrc,
   parseLyricsFile,
@@ -532,6 +533,61 @@ describe('extractEmbeddedLyrics — MP4, FLAC and OGG', () => {
 // ---------------------------------------------------------------------------
 // resolveLocalLyrics
 // ---------------------------------------------------------------------------
+
+describe('credit lines', () => {
+  it('drops LRC credit lines and keeps the first real lyric at its own time', () => {
+    const lrc = [
+      '[ar:Someone]',
+      '[ti:Song]',
+      '[00:00.00]Lyrics by: Someone',
+      '[00:00.00]\u4f5c\u8bcd : TOKOTOKO',
+      '[00:00.15]\u4f5c\u66f2 : TOKOTOKO',
+      '[00:00.31]first line',
+    ].join('\n');
+
+    const data = parseLrc(lrc);
+    expect(data.lines).toHaveLength(1);
+    expect(data.lines[0].startTime).toBeCloseTo(0.31, 3);
+    expect(data.lines[0].text).toBe('first line');
+  });
+
+  it('drops credit cues in SRT subtitles', () => {
+    const srt = [
+      '1',
+      '00:00:00,000 --> 00:00:01,000',
+      'Composer: Someone',
+      '',
+      '2',
+      '00:00:02,000 --> 00:00:04,000',
+      'real line',
+    ].join('\n');
+
+    expect(parseSrt(srt).lines).toEqual([{ startTime: 2, endTime: 4, text: 'real line' }]);
+  });
+
+  it('drops credits from untimed text without renumbering the remaining lines', () => {
+    const text = ['\u4f5c\u8bcd\uff1aX', 'line one', '\u4f5c\u66f2\uff1aY', 'line two'].join('\n');
+    const data = parsePlainLyrics(text);
+
+    expect(data.lines.map((line) => line.text)).toEqual(['line one', 'line two']);
+    expect(data.lines[0].startTime).toBe(2);
+    expect(data.lines[1].startTime).toBe(6);
+  });
+
+  it('keeps a lyric that only mentions a credit word mid-line', () => {
+    const lrc = '[00:01.00]\u3053\u306e\u66f2\u306f\u6700\u9ad8';
+    expect(parseLrc(lrc).lines[0].text).toBe('\u3053\u306e\u66f2\u306f\u6700\u9ad8');
+  });
+
+  it('strips credit lines from lyrics that were parsed before the filter existed', () => {
+    const lines = [
+      { startTime: 0, endTime: 0.15, text: '\u4f5c\u8bcd : X' },
+      { startTime: 0.31, endTime: 1.16, text: 'real line' },
+    ];
+
+    expect(dropCreditLines(lines)).toEqual([{ startTime: 0.31, endTime: 1.16, text: 'real line' }]);
+  });
+});
 
 describe('resolveLocalLyrics', () => {
   it('prefers the uploaded lyrics file over embedded tags', async () => {

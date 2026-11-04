@@ -135,95 +135,28 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
     });
   }, [beatAlignedChords, sequenceCorrections, storeKeySignature]);
 
-  // Chord-centric alignment: snap lyric line boundaries to chord change timestamps.
-  // Chords are the authoritative timing source; lyrics snap to them (not the reverse).
-  // Uses O(n+m) two-pointer technique (both lyrics and chord changes are sorted).
-  const snappedLyrics = useMemo(() => {
+  // Local lyric sources (.lrc/.srt/.txt files and embedded tags) already carry
+  // real timestamps, so they are used verbatim. Snapping line boundaries onto
+  // chord-change anchors used to move every line later by up to a chord span,
+  // and the monotonic pass cascaded that delay line after line (measured: lines
+  // drifted 10-47 s late), which is why this panel scrolled out of sync while
+  // the chord grid, which uses the raw times, stayed correct.
+  const displaySourceLyrics = useMemo<LyricsData>(() => {
     if (!lyrics?.lines?.length) return { lines: [] } as LyricsData;
-
-    // Primary anchors: chord change timestamps; fallback: beat timestamps
-    const anchorTimes = beatAlignedChords?.length
-      ? beatAlignedChords.map(c => c.time)
-      : beatTimes;
-
-    if (!anchorTimes.length) {
-      return {
-        ...lyrics,
-        lines: lyrics.lines.map((line) => ({
-          ...line,
-          chords: (line.chords || []).map((chord: ChordMarker) => ({
-            ...chord,
-            chord: simplifyChords ? simplifyChord(chord.chord) : chord.chord
-          }))
+    return {
+      ...lyrics,
+      lines: lyrics.lines.map((line) => ({
+        ...line,
+        chords: (line.chords || []).map((chord: ChordMarker) => ({
+          ...chord,
+          chord: simplifyChords ? simplifyChord(chord.chord) : chord.chord
         }))
-      } as LyricsData;
-    }
-
-    // Collect all lyric boundary timestamps and sort for the two-pointer pass
-    const queries: { lineIdx: number; isEnd: boolean; time: number }[] = [];
-    lyrics.lines.forEach((line, i) => {
-      queries.push({ lineIdx: i, isEnd: false, time: line.startTime });
-      queries.push({ lineIdx: i, isEnd: true, time: line.endTime });
-    });
-    queries.sort((a, b) => a.time - b.time || (a.isEnd ? 1 : 0) - (b.isEnd ? 1 : 0));
-
-    // Two-pointer: advance through sorted anchorTimes to find nearest for each query
-    const snappedBounds: [number, number][] = lyrics.lines.map(() => [0, 0]);
-    let ptr = 0;
-    for (const q of queries) {
-      while (ptr < anchorTimes.length - 1) {
-        const currDist = Math.abs(anchorTimes[ptr] - q.time);
-        const nextDist = Math.abs(anchorTimes[ptr + 1] - q.time);
-        if (nextDist <= currDist) {
-          ptr++;
-        } else {
-          break;
-        }
-      }
-      snappedBounds[q.lineIdx][q.isEnd ? 1 : 0] = anchorTimes[ptr];
-    }
-
-    // Binary search helper: first anchor index with value >= threshold
-    const lowerBound = (threshold: number): number => {
-      let lo = 0, hi = anchorTimes.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (anchorTimes[mid] < threshold) lo = mid + 1;
-        else hi = mid;
-      }
-      return lo;
-    };
-
-    const epsilon = 1e-3;
-    const snapped = lyrics.lines.map((line, i) => {
-      const [start, end_] = snappedBounds[i];
-      let end = end_;
-      if (end <= start) {
-        const idx = lowerBound(start + epsilon);
-        end = idx < anchorTimes.length ? anchorTimes[idx] : start + 0.25;
-      }
-      return { ...line, startTime: start, endTime: end, chords: [] };
-    });
-
-    // Ensure monotonic, non-overlapping lines
-    for (let i = 1; i < snapped.length; i++) {
-      const prev = snapped[i - 1];
-      const curr = snapped[i];
-      if (curr.startTime < prev.endTime + epsilon) {
-        const idx = lowerBound(prev.endTime + epsilon);
-        curr.startTime = idx < anchorTimes.length ? anchorTimes[idx] : prev.endTime + epsilon;
-        if (curr.endTime <= curr.startTime) {
-          const afterIdx = lowerBound(curr.startTime + epsilon);
-          curr.endTime = afterIdx < anchorTimes.length ? anchorTimes[afterIdx] : curr.startTime + 0.25;
-        }
-      }
-    }
-
-    return { ...lyrics, lines: snapped } as LyricsData;
-  }, [lyrics, beatAlignedChords, beatTimes, simplifyChords]);
+      }))
+    } as LyricsData;
+  }, [lyrics, simplifyChords]);
 
   const displayLyrics = useMemo<SynchronizedLyrics>(() => ({
-    lines: snappedLyrics.lines.map((line) => ({
+    lines: displaySourceLyrics.lines.map((line) => ({
       startTime: line.startTime,
       endTime: line.endTime,
       text: line.text,
@@ -234,8 +167,8 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
       })),
       wordTimings: line.wordTimings?.map((wordTiming) => ({ ...wordTiming })),
     })),
-    error: snappedLyrics.error,
-  }), [snappedLyrics]);
+    error: displaySourceLyrics.error,
+  }), [displaySourceLyrics]);
 
   const downbeatTimes = useMemo(() => (
     ((analysisResults?.beats as BeatInfo[]) || [])
