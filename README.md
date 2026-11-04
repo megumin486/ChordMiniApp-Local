@@ -1,7 +1,6 @@
 # ChordMini — Local Edition
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Cloud: none](https://img.shields.io/badge/cloud-none-success.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.9-brightgreen.svg)
 ![Python](https://img.shields.io/badge/python-3.9--3.11-blue.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)
@@ -9,11 +8,11 @@
 
 ChordMini is a music analysis web app: upload an audio file and it recognizes chords, tracks beats, detects key and modulation changes, and turns the result into a chord grid, Roman numeral analysis, guitar diagrams, a piano roll with MIDI export, local lyric sheets and an offline AI prompt export.
 
-This repository is a **local-only fork** of [ptnghia-j/ChordMiniApp](https://github.com/ptnghia-j/ChordMiniApp). The analysis pipeline, the model weights and the interface are the original project's; everything that needed an account or a server has been removed.
+This repository is a local-only fork of [ptnghia-j/ChordMiniApp](https://github.com/ptnghia-j/ChordMiniApp). The recognition pipeline, the model weights and the interface come from the original project; the parts that depended on an account or a hosted service have been removed. Configuration is two local URLs — see [Configuration](#configuration).
 
-- **No account, no API key.** No Firebase, Gemini, Music.ai or YouTube credentials — there is nothing to sign up for and no key to paste into a config file.
-- **Your audio never leaves your machine.** Nothing about your audio, filenames or results is uploaded. The only runtime network access is the instrument samples for chord playback and the in-app mini-games (static files from `gleitz.github.io` / `goldst.dev`, fetched only while a sound is being played; offline, those sounds stay silent and everything else works). Dependency and model downloads happen once, during installation.
-- **Lyrics are local too.** They come from lyric tags inside the audio file you upload, or from a `.lrc` / `.srt` / `.txt` / `.yaml` file you pick. No lyrics service is contacted and nothing is translated.
+Analysis, caching, harmony and prompt export all run in the process. Audio is the exception: chord playback and the in-app mini-games stream instrument samples from `gleitz.github.io` and `goldst.dev` while a sound plays, so those sounds need a network connection the first time. Everything else works offline. Dependencies and model weights are downloaded during installation, not at runtime.
+
+Lyrics come from tags already inside the audio file you upload (ID3v2 `USLT`/`SYLT`, MP4 `©lyr`, FLAC/OGG Vorbis comments) or from a `.lrc`, `.srt`, `.txt` or `.yaml` file you pick next to the audio. The app does not fetch lyrics from a service and does not translate them.
 
 ## Table of Contents
 
@@ -41,7 +40,7 @@ This repository is a **local-only fork** of [ptnghia-j/ChordMiniApp](https://git
 
 ![Chord grid](public/beatchord_grid.png)
 
-Synchronized chord recognition and beat tracking displayed as a grid, with Roman numeral analysis, simplified chord notation and manual chord corrections. Everything is computed on your machine.
+Synchronized chord recognition and beat tracking displayed as a grid, with Roman numeral analysis, simplified chord notation and manual chord corrections.
 
 ### Guitar diagrams
 
@@ -59,11 +58,11 @@ A piano roll with falling notes synchronized to chord playback, a scrolling chor
 
 ![Lyrics with chord grid](public/beatchord_grid_lyrics.png)
 
-Lyrics appear on the **Lyrics & Chords** tab and, once loaded, are also laid into the chord grid rows automatically — no toggle. Read from ID3v2 `USLT`/`SYLT` tags, MP4 `©lyr`, or FLAC/OGG Vorbis comments in the audio you upload, or from a lyric file you pick next to the audio picker. There is no translation step.
+Lyrics appear on the **Lyrics & Chords** tab and, once loaded, are laid into the chord grid rows automatically. They are read from ID3v2 `USLT`/`SYLT` tags, MP4 `©lyr`, or FLAC/OGG Vorbis comments in the audio you upload, or from a lyric file you pick next to the audio picker.
 
 ### Offline AI prompt export
 
-The hosted AI assistant of the original app is replaced by an export: the analysis is packed into a structured prompt (three timeline-precision levels — section, measure, beat — × three templates, plus guardrail instructions) that you copy into whichever LLM you already use. The app itself makes no request when generating it.
+The hosted AI assistant of the original app is replaced by an export: the analysis is packed into a structured prompt (three timeline-precision levels — section, measure, beat — × three templates, plus guardrail instructions) that you copy into whichever LLM you already use.
 
 ### Optional melody transcription
 
@@ -77,7 +76,7 @@ With the optional Sheet Sage service running, an estimated melodic line can be a
 ![Homepage light](public/homepage.png)
 ![Homepage dark](public/homepage_dark.png)
 
-Analyses of files you have already processed are served from the local cache, so re-opening one is instant.
+Analyses of files you have already processed are served from the local cache, so re-opening one does not re-run the analysis.
 
 ## Requirements
 
@@ -128,7 +127,7 @@ Runtime logs are written to `/tmp/chordmini-backend.log` and `/tmp/chordmini-fro
 | `./start.sh --no-backend` / `--no-frontend` | start only one side |
 | `BACKEND_PORT=… FRONTEND_PORT=… ./start.sh` | run on different ports |
 
-On Windows, `start.cmd` does the same from a double click: it opens WSL, runs `./start.sh --prod` in the project directory, and opens `http://127.0.0.1:3000` in your browser as soon as the frontend answers. Closing the window stops both services. Nothing is hard-coded: the launcher uses your default WSL distribution and maps its own folder into WSL, so a clone on a Windows drive and a clone inside the WSL file system both work. If your project is not where the file sits, or you want another distribution, set `CHORDMINI_WSL_DIR` / `CHORDMINI_WSL_DISTRO`; `CHORDMINI_PORT` changes the port, `NO_BROWSER=1` skips the browser, and any arguments are forwarded to `start.sh` (`start.cmd --check`, `start.cmd --prod --rebuild`).
+On Windows, `start.cmd` does the same from a double click: it opens WSL, runs `./start.sh --prod` in the project directory, and opens `http://127.0.0.1:3000` in your browser as soon as the frontend answers. Closing the window stops both services. The launcher is not tied to a particular distribution or path: it uses your default WSL distribution and maps its own folder into WSL, so a clone on a Windows drive and a clone inside the WSL file system both work. If your project is not where the file sits, or you want another distribution, set `CHORDMINI_WSL_DIR` / `CHORDMINI_WSL_DISTRO`; `CHORDMINI_PORT` changes the port, `NO_BROWSER=1` skips the browser, and any arguments are forwarded to `start.sh` (`start.cmd --check`, `start.cmd --prod --rebuild`).
 
 ### Manual installation
 
@@ -181,7 +180,7 @@ On Windows, `start.cmd` does the same from a double click: it opens WSL, runs `.
 
 1. Open <http://127.0.0.1:3000> in your browser (stay on `127.0.0.1`: the example config uses it, and in development mode the dev server only trusts that host — see Troubleshooting).
 2. Pick an audio file with **Choose Audio File** — the picker accepts `audio/*`; the backend store takes MP3, WAV, FLAC, M4A, OPUS, OGG, AIFF/AIF and WebM, normalizing unknown extensions to `.mp3`. Optionally pick a `.lrc` / `.srt` / `.txt` / `.yaml` file with **Choose Lyrics File**, or rely on lyric tags already embedded in the audio.
-3. Press **Analyze Audio** and wait for the analysis to finish. Results from a file you have analyzed before come back instantly from the local cache.
+3. Press **Analyze Audio** and wait for the analysis to finish. A file you have analyzed before returns from the local cache without re-running the analysis.
 4. Explore the result tabs:
 
    | Tab | Content |
@@ -193,7 +192,7 @@ On Windows, `start.cmd` does the same from a double click: it opens WSL, runs `.
 
    Playback controls, key signature, Roman numerals and chord simplification are available on these tabs. The upload page also shows a local cache panel where individual entries or the whole cache can be deleted.
 
-**Ports.** Frontend `3000`, backend `5001`, optional melody service `8082`. The backend deliberately uses `5001` instead of `5000`, which macOS reserves for AirPlay.
+**Ports.** Frontend `3000`, backend `5001`, optional melody service `8082`. The backend uses `5001` rather than `5000`, which macOS reserves for AirPlay.
 
 **Health check.**
 
@@ -213,7 +212,7 @@ docker build --platform=linux/amd64 -t sheetsage-backend:local .
 docker run --rm --platform=linux/amd64 -p 8082:8082 -v "$(pwd)/cache:/app/cache" sheetsage-backend:local
 ```
 
-Then point the frontend at it with `SHEETSAGE_API_URL=http://localhost:8082` in `.env.local` (`./start.sh --prod` exports this for you). Without the service the melody toggle reports itself as unavailable and nothing else is affected. See [sheetsage/README.md](sheetsage/README.md).
+Then point the frontend at it with `SHEETSAGE_API_URL=http://localhost:8082` in `.env.local` (`./start.sh --prod` exports this for you). Without the service the melody toggle reports itself as unavailable; the rest of the app is unaffected. See [sheetsage/README.md](sheetsage/README.md).
 
 ## Configuration
 
@@ -243,7 +242,7 @@ NEXT_PUBLIC_BASE_URL=http://127.0.0.1:3000  # origin used for the app's absolute
 
 ### GPU (optional, off by default)
 
-A fresh clone runs on CPU, which is what `start.sh` and the screenshots assume. A GPU is never forced, but it is not locked away either: set `CHORDMINI_DEVICE` in the environment that starts the backend, and the launcher passes it through.
+A fresh clone runs on the CPU, which is what `start.sh` and the screenshots assume. A supported GPU can be selected by setting `CHORDMINI_DEVICE` in the environment that starts the backend; the launcher passes it through.
 
 ```bash
 CHORDMINI_DEVICE=auto ./start.sh --prod
@@ -265,7 +264,6 @@ python_backend/data/
 - The audio store is capped at 2048 MB and evicts least-recently-used files first; analyses and audio expire after 30 days.
 - The cache is checked and cleaned when the backend starts, and the upload page has a panel to clear everything or delete a single entry.
 - `rm -rf python_backend/data` resets the app to a clean state.
-- Nothing about your files is sent anywhere; no analysis leaves the process.
 
 ## Architecture & API
 
