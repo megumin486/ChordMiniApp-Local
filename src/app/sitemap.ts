@@ -106,18 +106,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  // Generate dynamic lyrics pages
-  const lyricsPages: MetadataRoute.Sitemap = recentVideoIds.map(videoId => ({
-    url: `${baseUrl}/lyrics/${videoId}`,
-    lastModified: currentDate,
-    changeFrequency: 'weekly' as const,
-    priority: 0.7,
-  }));
-
   // Combine all pages
   return [
     ...staticPages,
     ...analyzePages,
-    ...lyricsPages,
   ];
 }

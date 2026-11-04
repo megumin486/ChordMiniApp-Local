@@ -1,10 +1,10 @@
-import type { LyricsData } from '@/types/musicAiTypes';
+﻿import type { LyricsData } from '@/types/musicAiTypes';
 import type { BeatGridTimedLyrics } from '@/components/chord-analysis/GridLyricsRow';
 
 /**
  * Local-only fork: the chord grid used to receive its lyric rows from the
  * LRCLIB search dialog (removed in Phase 5). Whatever lyrics we now have
- * locally — a file the user picked or lyric tags embedded in the audio — are
+ * locally 鈥?a file the user picked or lyric tags embedded in the audio 鈥?are
  * laid into the grid automatically, so these two helpers convert the shared
  * `LyricsData` into the shapes `ChordGrid` / `GuitarChordsTab` /
  * `PianoVisualizerTab` already accept.
@@ -33,10 +33,3 @@ export function toGridTimedLyrics(
   };
 }
 
-/** Plain one-line-per-row lyrics for the grid's plain lyric strip. */
-export function toGridPlainLyrics(lyrics: LyricsData | null | undefined): string | null {
-  if (!hasLines(lyrics)) return null;
-
-  const text = lyrics.lines.map((line) => line.text).join('\n');
-  return text.trim().length > 0 ? text : null;
-}

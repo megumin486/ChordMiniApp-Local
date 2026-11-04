@@ -1,4 +1,4 @@
-import { MetadataRoute } from 'next';
+﻿import { MetadataRoute } from 'next';
 
 /**
  * Generate dynamic robots.txt for ChordMini
@@ -17,7 +17,6 @@ export default function robots(): MetadataRoute.Robots {
           '/help',
           '/analyze',
           '/analyze/*',
-          '/lyrics/*',
           '/changelog',
           '/privacy',
           '/terms',
@@ -52,7 +51,6 @@ export default function robots(): MetadataRoute.Robots {
           '/help',
           '/analyze',
           '/analyze/*',
-          '/lyrics/*',
           '/changelog',
           '/privacy',
           '/terms',
@@ -87,7 +85,6 @@ export default function robots(): MetadataRoute.Robots {
           '/help',
           '/analyze',
           '/analyze/*',
-          '/lyrics/*',
           '/changelog',
           '/privacy',
           '/terms',
@@ -131,7 +128,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
         disallow: [
           '/analyze/*',
-          '/lyrics/*',
           '/api/*',
         ],
         allow: [

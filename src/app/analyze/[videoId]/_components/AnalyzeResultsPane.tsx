@@ -6,7 +6,6 @@ import AnalysisHeader from '@/components/analysis/AnalysisHeader';
 import ResultsTabs from '@/components/homepage/ResultsTabs';
 import {
   ChordGridSkeleton,
-  LyricsSkeleton,
 } from '@/components/common/SkeletonLoaders';
 import type { RomanNumeralData, SequenceCorrectionsData } from '@/services/storage/localAnalysisStore';
 import type { AnalyzeResultsPaneProps } from '../_types/analyzePageViewModel';
@@ -23,12 +22,8 @@ const ChordGridContainer = dynamic(() => import('@/components/chord-analysis/Cho
 });
 
 // Lyrics are local-only in this build (uploaded lyric file or lyric tags
-// embedded in the audio file); the cloud transcription path is gone.
-const LyricsSection = dynamic(() => import('@/components/lyrics/LyricsSection').then(mod => ({ default: mod.LyricsSection })), {
-  loading: () => <LyricsSkeleton />,
-  ssr: false,
-});
-
+// embedded in the audio file); they show up in the floating Song Lyrics panel
+// and in the chord-grid rows, not in a results tab.
 const GuitarChordsTab = dynamic(() => import('@/components/chord-analysis/GuitarChordsTab'), {
   loading: () => <div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
   ssr: false,
@@ -97,8 +92,6 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
       <ResultsTabs
         activeTab={props.activeTab}
         setActiveTab={props.setActiveTab}
-        showLyrics={props.showLyrics}
-        hasCachedLyrics={props.hasCachedLyrics}
       />
 
       <div className="tab-content">
@@ -107,7 +100,7 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
             <ChordGridContainer
               chordGridData={chordGridData}
               isChatbotOpen={props.isChatbotOpen}
-              isLyricsPanelOpen={false}
+              isLyricsPanelOpen={props.isLyricsPanelOpen}
               segmentationData={segmentationData}
               isEditMode={props.isEditMode}
               editedChords={props.editedChords}
@@ -115,7 +108,6 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
               showCorrectedChords={props.showCorrectedChords}
               sequenceCorrections={sequenceCorrections}
               gridLyrics={props.gridLyrics}
-              plainLyrics={props.plainLyrics}
             />
 
             <AnalysisSummary
@@ -143,7 +135,6 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
             isChordPlaybackEnabled={props.isChordPlaybackEnabled}
             audioUrl={props.audioUrl}
             gridLyrics={props.gridLyrics}
-            plainLyrics={props.plainLyrics}
           />
         )}
 
@@ -165,21 +156,7 @@ export default function AnalyzeResultsPane(props: AnalyzeResultsPaneProps) {
           />
         )}
 
-        {props.activeTab === 'lyricsChords' && (
-          <LyricsSection
-            showLyrics={props.showLyrics}
-            lyrics={props.lyrics}
-            hasCachedLyrics={props.hasCachedLyrics}
-            currentTime={props.currentTime}
-            fontSize={props.fontSize}
-            theme={props.theme}
-            analysisResults={props.analysisResults}
-            onFontSizeChange={props.onFontSizeChange}
-            segmentationData={props.segmentationData as ComponentProps<typeof LyricsSection>['segmentationData']}
-            sequenceCorrections={props.sequenceCorrections as ComponentProps<typeof LyricsSection>['sequenceCorrections']}
-          />
-        )}
-      </div>
+        </div>
 
     </div>
   );

@@ -107,7 +107,6 @@ export interface AnalyzeResultsPaneProps {
   isChatbotOpen: boolean;
   isLyricsPanelOpen: boolean;
   gridLyrics?: BeatGridTimedLyrics | null;
-  plainLyrics?: string | null;
   editedChords: Record<string, string>;
   onChordEdit: (index: number, newChord: string) => void;
   keySignature: string | null;
@@ -234,6 +233,7 @@ export interface AnalyzePageViewModel {
     toggleCountdown: () => void;
     isChatbotOpen: boolean;
     isLyricsPanelOpen: boolean;
+    toggleLyricsPanel: () => void;
     toggleChatbot: () => void;
     segmentation: {
       isVisible: boolean;
@@ -249,6 +249,14 @@ export interface AnalyzePageViewModel {
       toggleMetronomeWithSync: () => Promise<boolean>;
     };
     totalBeats: number;
+  };
+  lyricsPanelProps: {
+    isOpen: boolean;
+    onClose: () => void;
+    videoTitle?: string;
+    currentTime: number;
+    lyrics: LyricsData | null;
+    onClearLyrics: () => void;
   };
 }
 

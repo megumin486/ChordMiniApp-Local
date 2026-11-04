@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback, type ComponentProps } from 'react';
 import dynamic from 'next/dynamic';
@@ -61,10 +61,14 @@ const PianoVisualizerTab = dynamic(() => import('@/components/piano-visualizer/P
   ssr: false
 });
 
-// Lyrics are local-only in this build: an uploaded lyric file (.lrc/.srt/.txt)
-// or lyric tags embedded in the audio file. No Music.ai / LRCLib / Genius.
+// Floating song-lyrics panel, restored from upstream. Same layout as the
+// original; it only displays the lyrics loaded from local sources.
 const LyricsSection = dynamic(() => import('@/components/lyrics/LyricsSection').then(mod => ({ default: mod.LyricsSection })), {
   loading: () => <div className="h-64 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg" />,
+  ssr: false
+});
+
+const LyricsPanel = dynamic(() => import('@/components/lyrics/LyricsPanel'), {
   ssr: false
 });
 
@@ -101,7 +105,7 @@ import {
   loadLyricsForAudio,
   saveLyricsForAudio,
 } from '@/utils/lyrics/lyricsCache';
-import { toGridPlainLyrics, toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
+import { toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
 import { requestSheetSageTranscription } from '@/services/sheetsage/sheetSageTranscriptionClient';
 import { useSheetSageBackendAvailability } from '@/hooks/sheetsage/useSheetSageBackendAvailability';
 import { getSafeBeatModel, getSafeChordModel } from '@/utils/modelFiltering';
@@ -115,7 +119,7 @@ export default function LocalAudioAnalyzePage() {
   // project (FEATURE_SCOPE item 24). The local Sheet Sage service (expected at
   // http://localhost:8082) is not configured on this machine, so the backend
   // probe reports unavailable and the dock toggle renders disabled with the
-  // reason it returns. Enabling it needs no code change — only the service.
+  // reason it returns. Enabling it needs no code change 鈥?only the service.
   const showSheetSage = true;
   useSheetSageBackendAvailability(showSheetSage);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -148,7 +152,6 @@ export default function LocalAudioAnalyzePage() {
   // Local lyrics are laid into the chord grid rows automatically (no toggle):
   // same data the Lyrics & Chords tab renders, just fed to the grid too.
   const gridTimedLyrics = useMemo(() => toGridTimedLyrics(lyrics), [lyrics]);
-  const gridPlainLyrics = useMemo(() => toGridPlainLyrics(lyrics), [lyrics]);
   const analysisDurationLimitReason = useMemo(
     () => getAnalysisDurationLimitReason(duration),
     [duration],
@@ -319,6 +322,7 @@ export default function LocalAudioAnalyzePage() {
 
   // Panels and countdown
   const [isLyricsPanelOpen, setIsLyricsPanelOpen] = useState<boolean>(false);
+  const toggleLyricsPanel = () => setIsLyricsPanelOpen(prev => !prev);
   const [isChatbotOpen, setIsChatbotOpen] = useState<boolean>(false);
   const [isCountdownEnabled, setIsCountdownEnabled] = useState<boolean>(false);
   const [isCountingDown, setIsCountingDown] = useState<boolean>(false);
@@ -764,8 +768,8 @@ export default function LocalAudioAnalyzePage() {
     // Same copy and styling as the original project's "Analysis Complete" toast (ProcessingStatusBanner:190)
     addToast({
       title: 'Analysis Complete',
-      description: `Beat and chord analysis completed in 00:00.00 · Results Cache${
-        restored.filename ? ` · ${restored.filename}` : ''
+      description: `Beat and chord analysis completed in 00:00.00 路 Results Cache${
+        restored.filename ? ` 路 ${restored.filename}` : ''
       }`,
       color: 'default',
       timeout: 5000,
@@ -842,7 +846,7 @@ export default function LocalAudioAnalyzePage() {
       }));
 
       // Start chord and beat analysis with selected detectors using original File object
-      // This avoids the 10x size bloat from AudioBuffer conversion (3.6MB → 41.7MB)
+      // This avoids the 10x size bloat from AudioBuffer conversion (3.6MB 鈫?41.7MB)
       const results = await analyzeAudioWithRateLimit(audioFile, beatDetector, chordDetector);
 
       // FIXED: Clear the stage timeout to prevent it from overriding completion
@@ -1539,7 +1543,9 @@ const simplifiedChordGridData = useMemo(() => {
 
               {/* Analysis Results Tabs moved inline above with controls */}
               {analysisResults && (
-                <div className="mb-4">
+                <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start">
+
+                  <div className="min-w-0 flex-1">
 
                   {/* Tab content */}
                   <div className="tab-content">
@@ -1572,7 +1578,6 @@ const simplifiedChordGridData = useMemo(() => {
                               sequenceCorrections={sequenceCorrections}
                               segmentationData={segmentationData}
                               gridLyrics={gridTimedLyrics}
-                              plainLyrics={gridPlainLyrics}
                             />
                             <div className="mt-3">
                               <BeatTimeline
@@ -1606,7 +1611,6 @@ const simplifiedChordGridData = useMemo(() => {
                         isChordPlaybackEnabled={chordPlayback.isEnabled}
                         audioUrl={audioProcessingState.audioUrl || null}
                         gridLyrics={gridTimedLyrics}
-                        plainLyrics={gridPlainLyrics}
                       />
                     )}
 
@@ -1630,8 +1634,6 @@ const simplifiedChordGridData = useMemo(() => {
                       />
                     )}
 
-                    {/* Lyrics & Chords Tab — local sources only: a lyric file the
-                        user picked, or lyric tags embedded in the audio file */}
                     {activeTab === 'lyricsChords' && (
                       <LyricsSection
                         showLyrics={showLyrics}
@@ -1646,8 +1648,28 @@ const simplifiedChordGridData = useMemo(() => {
                         sequenceCorrections={sequenceCorrections as unknown as ComponentProps<typeof LyricsSection>['sequenceCorrections']}
                       />
                     )}
-
+                    </div>
                   </div>
+
+                  {isLyricsPanelOpen && (
+                    <div className="w-full lg:w-[20.5rem] lg:shrink-0 lg:sticky lg:top-4">
+                      <LyricsPanel
+                        embedded
+                        isOpen={isLyricsPanelOpen}
+                        onClose={() => setIsLyricsPanelOpen(false)}
+                        videoTitle={audioFile?.name ?? restoredAudioName ?? undefined}
+                        currentTime={currentTime}
+                        lyrics={lyrics}
+                        onClearLyrics={() => {
+                          setLyrics(null);
+                          setShowLyrics(false);
+                          setHasCachedLyrics(false);
+                          setLyricsSourceName(null);
+                        }}
+                        className="h-[calc(100vh-14rem)] min-h-[320px] max-h-[720px]"
+                      />
+                    </div>
+                  )}
 
                 </div>
               )}
@@ -1681,6 +1703,7 @@ const simplifiedChordGridData = useMemo(() => {
                           toggleCountdown={() => setIsCountdownEnabled(prev => !prev)}
                           isChatbotOpen={isChatbotOpen}
                           isLyricsPanelOpen={isLyricsPanelOpen}
+                          toggleLyricsPanel={toggleLyricsPanel}
                           toggleChatbot={toggleChatbot}
                           segmentation={{
                             isVisible: showSegmentation && !!segmentationData,
@@ -1758,3 +1781,4 @@ const simplifiedChordGridData = useMemo(() => {
     </div>
   );
 }
+

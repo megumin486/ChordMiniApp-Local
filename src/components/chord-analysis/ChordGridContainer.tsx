@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React from 'react';
 import ChordGrid from '@/components/chord-analysis/ChordGrid';
@@ -69,7 +69,6 @@ interface ChordGridContainerProps {
   editedChords?: Record<number, string>;
   onChordEdit?: (index: number, newChord: string) => void;
   gridLyrics?: BeatGridTimedLyrics | null;
-  plainLyrics?: string | null;
   // Stable (un-simplified) chords used only for Roman numeral mapping. The UI
   // simplify toggle rewrites `chordGridData.chords`, while the backend Roman
   // numeral analysis stays aligned to the original sequence: mapping must not
@@ -94,7 +93,6 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
   editedChords = {},
   onChordEdit,
   gridLyrics = null,
-  plainLyrics = null,
   originalChordsForRomanNumerals: originalChordsForRomanNumeralsProp,
 }) => {
   // PERFORMANCE OPTIMIZATION: Memoize stable props to prevent unnecessary re-renders
@@ -143,7 +141,7 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
     // When pitch shift is enabled, add the quality suffix (major/minor) back to the transposed key
     let displayKey = mergedKeySignature;
     if (isPitchShiftEnabled && targetKey && mergedKeySignature) {
-      // Extract quality from original key signature (e.g., "E♭ major" -> "major")
+      // Extract quality from original key signature (e.g., "E鈾?major" -> "major")
       const qualityMatch = mergedKeySignature.match(/\s+(major|minor)$/i);
       const quality = qualityMatch ? qualityMatch[1] : '';
       // Combine transposed note with original quality
@@ -235,27 +233,8 @@ export const ChordGridContainer: React.FC<ChordGridContainerProps> = React.memo(
     />
   );
 
-  if (!plainLyrics) {
-    return <div>{grid}</div>;
-  }
-
-  return (
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(230px,28%)]">
-      <div className="min-w-0">{grid}</div>
-      <aside className="min-w-0 lg:sticky lg:top-4 self-start rounded-xl border border-stone-300 bg-stone-50/95 shadow-[0_18px_45px_-32px_rgba(15,23,42,0.18)] dark:border-gray-600 dark:bg-gray-800/50">
-        <div className="border-b border-stone-200/80 px-3 py-2 text-sm font-semibold text-slate-800 dark:border-white/10 dark:text-slate-100">
-          Plain Lyrics
-        </div>
-        <div className="max-h-[520px] overflow-y-auto overscroll-contain px-3 py-2 text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-          {plainLyrics.split('\n').map((line, index) => (
-            <p key={index} className={line.trim() ? 'mb-2' : 'mb-4'}>
-              {line.trim() || '\u00A0'}
-            </p>
-          ))}
-        </div>
-      </aside>
-    </div>
-  );
+  return <div>{grid}</div>;
 });
 
 ChordGridContainer.displayName = 'ChordGridContainer';
+

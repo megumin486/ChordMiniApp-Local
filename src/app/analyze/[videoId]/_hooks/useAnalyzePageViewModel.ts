@@ -67,7 +67,7 @@ import { useAnalyzePageStoreSync } from './useAnalyzePageStoreSync';
 import { useAnalyzePageLifecycleReset } from './useAnalyzePageLifecycleReset';
 import { shouldShowSnowEffect } from '@/utils/seasonalEffects';
 import { resolveLyricsForChatbotContext } from '@/utils/chatbotLyrics';
-import { toGridPlainLyrics, toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
+import { toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
 
 interface UseAnalyzePageViewModelParams {
   videoId: string;
@@ -615,6 +615,15 @@ export function useAnalyzePageViewModel({
   const setIsMelodicTranscriptionPlaybackEnabled = useUIStore((state) => state.setIsMelodicTranscriptionPlaybackEnabled);
 
   const [isChatbotOpen, setIsChatbotOpen] = useState(false);
+  // Floating lyrics panel (restored from upstream): it shows the locally loaded
+  // lyrics, so opening it never triggers a network request.
+  const [isLyricsPanelOpen, setIsLyricsPanelOpen] = useState(false);
+  const toggleLyricsPanel = useCallback(() => {
+    setIsLyricsPanelOpen((open) => {
+      if (!open) setIsChatbotOpen(false);
+      return !open;
+    });
+  }, []);
 
   useEffect(() => {
     const shouldMinimize = isChatbotOpen
@@ -665,7 +674,6 @@ export function useAnalyzePageViewModel({
   // chord grid rows automatically. The LRCLIB search that used to feed this
   // was removed in Phase 5.
   const visibleGridLyrics = useMemo(() => toGridTimedLyrics(lyrics), [lyrics]);
-  const visiblePlainLyrics = useMemo(() => toGridPlainLyrics(lyrics), [lyrics]);
 
   const chatbotLyrics = useMemo(() => resolveLyricsForChatbotContext(
     lyrics,
@@ -1154,7 +1162,7 @@ export function useAnalyzePageViewModel({
     videoTitle,
     showSegmentation,
     isChatbotOpen,
-    isLyricsPanelOpen: false,
+    isLyricsPanelOpen,
     isPlaying,
     currentTime,
     duration,
@@ -1238,9 +1246,8 @@ export function useAnalyzePageViewModel({
     sequenceCorrections: simplifiedSequenceCorrections,
     chordGridData: simplifiedChordGridData,
     isChatbotOpen,
-    isLyricsPanelOpen: false,
+    isLyricsPanelOpen,
     gridLyrics: visibleGridLyrics,
-    plainLyrics: visiblePlainLyrics,
     editedChords,
     onChordEdit: handleChordEditWrapper,
     keySignature,
@@ -1268,10 +1275,10 @@ export function useAnalyzePageViewModel({
     analysisResults,
     isVideoMinimized,
     isChatbotOpen,
-    isLyricsPanelOpen: false,
+    isLyricsPanelOpen,
     videoPlayerProps: {
       isChatbotOpen,
-      isLyricsPanelOpen: false,
+      isLyricsPanelOpen,
       isVideoMinimized,
       isFollowModeEnabled,
       analysisResults: analysisResults as any,
@@ -1419,7 +1426,8 @@ export function useAnalyzePageViewModel({
     countdownDisplay,
     toggleCountdown,
     isChatbotOpen,
-    isLyricsPanelOpen: false,
+    isLyricsPanelOpen,
+    toggleLyricsPanel,
     toggleChatbot,
     segmentation: {
       isVisible: showSegmentation && !!segmentationData,
@@ -1435,6 +1443,15 @@ export function useAnalyzePageViewModel({
       toggleMetronomeWithSync: handleMetronomeToggle,
     },
     totalBeats: simplifiedChordGridData?.beats?.length || 0,
+  };
+
+  const lyricsPanelProps = {
+    isOpen: isLyricsPanelOpen,
+    onClose: () => setIsLyricsPanelOpen(false),
+    videoTitle: videoTitle || undefined,
+    currentTime,
+    lyrics,
+    onClearLyrics: () => setLyrics(null),
   };
 
   const chromeProps = {
@@ -1499,5 +1516,6 @@ export function useAnalyzePageViewModel({
     sidePanelsProps,
     floatingDockProps,
     utilityBarProps,
+    lyricsPanelProps,
   };
 }

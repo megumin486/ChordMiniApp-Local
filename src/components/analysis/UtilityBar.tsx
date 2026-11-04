@@ -4,6 +4,7 @@ import React, { memo, useCallback, useEffect, useState } from 'react';
 import { Popover, PopoverTrigger, PopoverContent, Tooltip } from '@heroui/react';
 import { motion } from 'framer-motion';
 import { HiChevronDoubleDown, HiOutlineChevronDoubleDown } from 'react-icons/hi2';
+import { FaRegFileLines } from 'react-icons/fa6';
 import { PiMetronomeBold, PiMetronome } from 'react-icons/pi';
 import { VscRobot } from 'react-icons/vsc';
 import SegmentationToggleButton from '@/components/analysis/SegmentationToggleButton';
@@ -63,6 +64,7 @@ interface UtilityBarProps {
   // Panels
   isChatbotOpen: boolean;
   isLyricsPanelOpen: boolean;
+  toggleLyricsPanel: () => void;
   toggleChatbot: () => void;
   segmentation: {
     isVisible: boolean;
@@ -238,6 +240,7 @@ const UtilityBar: React.FC<UtilityBarProps> = ({
   toggleCountdown,
   isChatbotOpen,
   isLyricsPanelOpen,
+  toggleLyricsPanel,
   toggleChatbot,
   segmentation,
   metronome,
@@ -387,6 +390,25 @@ const UtilityBar: React.FC<UtilityBarProps> = ({
               trackName={promptExport.trackName ?? null}
             />
           )}
+
+          {/* Lyrics panel toggle. Upstream only rendered this on the /analyze/[videoId]
+              page; this build keeps its results inline on /analyze, so the button is
+              available on both pages. */}
+          <Tooltip
+            content={isLyricsPanelOpen ? 'Hide lyrics' : 'Show lyrics'}
+            placement="top"
+            classNames={{
+              content: 'bg-white text-gray-900 dark:bg-content-bg dark:text-gray-100 border border-gray-300 dark:border-gray-600 shadow-lg'
+            }}
+          >
+            <button
+              onClick={toggleLyricsPanel}
+              className={`${utilityCircleButtonClass} ${isLyricsPanelOpen ? 'bg-emerald-600 text-white' : 'bg-gray-200/60 dark:bg-gray-600/60 text-gray-800 dark:text-gray-100'}`}
+              aria-label="Toggle lyrics panel"
+            >
+              <FaRegFileLines className="h-4 w-4"/>
+            </button>
+          </Tooltip>
 
           {/* Chatbot Tooltip (Unwrapped Fragment) */}
           {!isUploadPage && (

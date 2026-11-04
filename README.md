@@ -190,7 +190,7 @@ On Windows, `start.cmd` does the same from a double click: it opens WSL, runs `.
    | **Piano** | Piano roll, scrolling chord strip and MIDI export |
    | **Lyrics & Chords** | Full lyric sheet with chord playback |
 
-   Playback controls, key signature, Roman numerals and chord simplification are available on these tabs. The upload page also shows a local cache panel where individual entries or the whole cache can be deleted.
+   Playback controls, key signature, Roman numerals and chord simplification are available on these tabs. The floating **Song Lyrics** panel opens from the lyrics button in the top bar and follows the playhead; its search box filters the lyrics you already loaded instead of querying a service. The upload page also shows a local cache panel where individual entries or the whole cache can be deleted.
 
 **Ports.** Frontend `3000`, backend `5001`, optional melody service `8082`. The backend uses `5001` rather than `5000`, which macOS reserves for AirPlay.
 

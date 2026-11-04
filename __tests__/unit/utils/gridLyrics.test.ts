@@ -1,4 +1,4 @@
-import { toGridPlainLyrics, toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
+﻿import { toGridTimedLyrics } from '@/utils/lyrics/gridLyrics';
 import type { LyricsData, LyricWordTiming } from '@/types/musicAiTypes';
 
 const line = (text: string, startTime: number, endTime: number, wordTimings?: LyricWordTiming[]) => ({
@@ -47,20 +47,3 @@ describe('toGridTimedLyrics', () => {
   });
 });
 
-describe('toGridPlainLyrics', () => {
-  it('returns null for missing, empty or whitespace-only lyrics', () => {
-    expect(toGridPlainLyrics(null)).toBeNull();
-    expect(toGridPlainLyrics(undefined)).toBeNull();
-    expect(toGridPlainLyrics({ lines: [] })).toBeNull();
-    expect(toGridPlainLyrics(lyrics(line('   ', 0, 1)))).toBeNull();
-  });
-
-  it('joins one line per row', () => {
-    expect(toGridPlainLyrics(lyrics(line('hello', 0, 2), line('world', 2, 4)))).toBe('hello\nworld');
-  });
-
-  it('keeps interior blank lines and drops only a fully blank result', () => {
-    expect(toGridPlainLyrics(lyrics(line('a', 0, 1), line('', 1, 2), line('b', 2, 3)))).toBe('a\n\nb');
-    expect(toGridPlainLyrics(lyrics(line('', 0, 1), line('', 1, 2)))).toBeNull();
-  });
-});

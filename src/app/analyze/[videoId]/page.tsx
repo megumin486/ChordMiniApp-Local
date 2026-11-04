@@ -24,6 +24,11 @@ const DynamicAnalysisControls = dynamic(
   }
 );
 
+// Floating song-lyrics panel (restored from upstream): local lyrics only.
+const DynamicLyricsPanel = dynamic(() => import('@/components/lyrics/LyricsPanel'), {
+  ssr: false,
+});
+
 export default function YouTubeVideoAnalyzePage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -111,8 +116,19 @@ export default function YouTubeVideoAnalyzePage() {
                       defaultDesktopLayout={[60, 40]}
                       defaultMobileLayout={[66, 34]}
                       left={(
-                        <div className="pr-2">
-                          <AnalyzeResultsPane {...viewModel.resultsPaneProps} />
+                        <div className="flex min-h-0 gap-3 pr-2">
+                          <div className="min-w-0 flex-1">
+                            <AnalyzeResultsPane {...viewModel.resultsPaneProps} />
+                          </div>
+                          {viewModel.lyricsPanelProps.isOpen && (
+                            <div className="hidden w-[19rem] shrink-0 lg:block">
+                              <DynamicLyricsPanel
+                                {...viewModel.lyricsPanelProps}
+                                embedded
+                                className="h-[60vh] min-h-[320px] max-h-[720px]"
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                       right={<AnalyzeSidePanels {...viewModel.sidePanelsProps} />}
@@ -124,6 +140,7 @@ export default function YouTubeVideoAnalyzePage() {
                   floatingDockProps={viewModel.floatingDockProps}
                   utilityBarProps={viewModel.utilityBarProps}
                 />
+
               </div>
             </div>
 

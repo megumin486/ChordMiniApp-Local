@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
@@ -126,7 +126,6 @@ interface GuitarChordsTabProps {
   isChordPlaybackEnabled?: boolean;
   audioUrl?: string | null;
   gridLyrics?: BeatGridTimedLyrics | null;
-  plainLyrics?: string | null;
 }
 
 const itemTransition = {
@@ -361,7 +360,6 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
   isChordPlaybackEnabled = false,
   audioUrl = null,
   gridLyrics = null,
-  plainLyrics = null,
 }) => {
   const targetKey = useTargetKey();
 
@@ -397,7 +395,7 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
   }, [capoFret, setSharedCapoFret]);
 
   // When capo is set, transpose chords DOWN by capo fret count to get the "shape" chord
-  // e.g., capo on fret 2: song has D → guitarist plays C shape (D transposed -2 = C)
+  // e.g., capo on fret 2: song has D 鈫?guitarist plays C shape (D transposed -2 = C)
   const capoTargetKey = useMemo(() => {
     if (capoFret === 0) return 'C';
     const baseKey = targetKey || keySignature || 'C';
@@ -780,7 +778,7 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
                     className="flex h-8 w-7 items-center justify-center rounded-full text-sm font-bold text-gray-600 transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-200 dark:hover:bg-white/10"
                     aria-label="Decrease capo fret"
                   >
-                    −
+                    鈭?
                   </button>
                   <input
                     id="capo-input"
@@ -847,7 +845,7 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
         </div>
         {viewMode !== 'tab' && (
           <ScrollableTabContainer heightClass="h-[8.5rem] sm:h-32 md:h-40 lg:h-48">
-            <ChordGridContainer {...{ analysisResults, chordGridData, keySignature, isDetectingKey, isChatbotOpen, isLyricsPanelOpen, isUploadPage, showCorrectedChords, chordCorrections, sequenceCorrections, segmentationData, gridLyrics, plainLyrics }} />
+            <ChordGridContainer {...{ analysisResults, chordGridData, keySignature, isDetectingKey, isChatbotOpen, isLyricsPanelOpen, isUploadPage, showCorrectedChords, chordCorrections, sequenceCorrections, segmentationData, gridLyrics }} />
           </ScrollableTabContainer>
         )}
       </div>
@@ -926,3 +924,4 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
 };
 
 export default GuitarChordsTab;
+
