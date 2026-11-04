@@ -229,16 +229,35 @@ ensure_backend_deps() {
     ok "Python backend dependencies present"
     return 0
   fi
-  local py vp tmp
+  local py vp tmp venv_ready=0
   py="$(pick_python)" || die "Python 3.9+ is required but was not found"
   step "setting up the Python backend environment (this can take a few minutes)"
-  if [ ! -x "$VENV_DIR/bin/python" ]; then
-    "$py" -m venv "$VENV_DIR" || die "could not create a virtualenv at $VENV_DIR"
-    ok "created virtualenv with $py"
-  else
+  if [ -x "$VENV_DIR/bin/python" ] && "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+    venv_ready=1
     ok "reusing the existing virtualenv"
+  elif [ -x "$VENV_DIR/bin/python" ]; then
+    # A venv created on a Windows drive can end up without pip when the creation is
+    # interrupted; such a venv cannot install anything, so rebuild it.
+    skip "the existing virtualenv has no working pip — recreating it"
+    rm -rf "$VENV_DIR"
+  fi
+  if [ "$venv_ready" -eq 0 ]; then
+    "$py" -m venv "$VENV_DIR" || die "could not create a virtualenv at $VENV_DIR"
+    "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1 \
+      || "$VENV_DIR/bin/python" -m ensurepip --upgrade >/dev/null 2>&1 \
+      || die "the virtualenv at $VENV_DIR has no pip — remove it and run start.sh again"
+    ok "created virtualenv with $py"
   fi
   vp="$VENV_DIR/bin/python"
+  # pip renames a distribution to "~name" while replacing it and leaves that trash
+  # behind when the install is interrupted; every later pip call then warns about an
+  # invalid distribution, so clear it before touching the environment again.
+  local junk
+  for junk in "$VENV_DIR"/lib/python*/site-packages/~*; do
+    [ -e "$junk" ] || continue
+    skip "removing leftover install artifacts: $(basename "$junk")"
+    rm -rf "$junk"
+  done
   "$vp" -m pip install --upgrade pip setuptools wheel || die "upgrading pip failed"
   "$vp" -m pip install "Cython>=0.29.0" "numpy==1.26.4" || die "installing Cython/numpy failed"
   "$vp" -m pip install "git+https://github.com/CPJKU/madmom" || die "installing madmom failed"
@@ -455,7 +474,11 @@ do_check() {
   py="$(pick_python)" || py=""
   if [ -n "$py" ]; then ok "interpreter: $py ($("$py" -V 2>&1))"; else fail "no python3 found"; rc=1; fi
   if [ -x "$VENV_DIR/bin/python" ]; then
-    ok "virtualenv: $VENV_DIR"
+    if "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+      ok "virtualenv: $VENV_DIR"
+    else
+      skip "virtualenv has no pip (start.sh would recreate it)"; rc=1
+    fi
     if backend_deps_ok; then ok "backend dependencies importable"
     else skip "backend dependencies incomplete (start.sh would install them)"; rc=1; fi
   else
@@ -532,6 +555,9 @@ main() {
 
   step "ChordMini local launcher"
   printf '       repo %s\n' "$ROOT"
+  case "$ROOT" in
+    /mnt/*) printf '       note this clone sits on a Windows drive — installs and builds are much slower than inside the WSL filesystem\n' ;;
+  esac
   printf '       app  %s   backend %s\n\n' "$NEXT_PUBLIC_BASE_URL" "$PYTHON_API_URL"
 
   ensure_env_file

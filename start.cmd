@@ -7,11 +7,14 @@ rem Closing the window (or Ctrl+C) stops both services.
 rem
 rem It finds everything on its own: the project directory is the folder this
 rem file sits in (a Windows drive, or a \\wsl.localhost path), translated to a
-rem WSL path, and the distribution is your default WSL one. Override when needed:
+rem WSL path, and the distribution is your default WSL one. A repository kept on a
+rem Windows drive is treated as source only: if the same project is already set up
+rem in the WSL home directory, that copy is the one that runs. Override when needed:
 rem   CHORDMINI_WSL_DISTRO  WSL distribution name      (default: your default distro)
 rem   CHORDMINI_WSL_DIR     project path inside WSL   (default: this folder, else $HOME/ChordMiniApp)
 rem   CHORDMINI_PORT        frontend port             (default: 3000)
 rem   NO_BROWSER=1          do not open the browser
+rem   NO_SYNC=1             do not copy edited sources into the WSL copy first
 setlocal EnableExtensions EnableDelayedExpansion
 title ChordMini (WSL)
 
@@ -38,9 +41,43 @@ if not defined WSLDIR (
 )
 set "DISTRO_ARG="
 if defined DISTRO set "DISTRO_ARG=-d !DISTRO!"
+rem Resolve the WSL home directory once; it backs the fallback below and lets the
+rem Windows-drive clone hand over to a prepared copy inside WSL.
+set "HOMEDIR="
+for /f "usebackq delims=" %%h in (`wsl.exe !DISTRO_ARG! -- bash -lc "printf '%%s' \"$HOME\"" 2^>nul`) do set "HOMEDIR=%%h"
 if not defined WSLDIR (
-  echo   note: could not map this folder into WSL; falling back to $HOME/ChordMiniApp
-  set "WSLDIR=$HOME/ChordMiniApp"
+  if not defined HOMEDIR (
+    echo   ERROR: could not find a project path or a WSL home directory.
+    echo          Set CHORDMINI_WSL_DIR to the project path inside WSL.
+    pause
+    exit /b 1
+  )
+  echo   note: could not map this folder into WSL; falling back to the WSL copy in your home directory
+  set "WSLDIR=!HOMEDIR!/ChordMiniApp"
+)
+rem A clone on a Windows drive is normally just the editable source; installing
+rem dependencies there is slow and duplicates gigabytes already present in WSL.
+if not defined CHORDMINI_WSL_DIR if /i "!WSLDIR:~0,5!"=="/mnt/" (
+  set "SRCDIR=!WSLDIR!"
+  set "HOMECOPY=!HOMEDIR!/ChordMiniApp"
+  wsl.exe !DISTRO_ARG! -- bash -lc "test -f \"$HOME/ChordMiniApp/start.sh\" && test -x \"$HOME/ChordMiniApp/python_backend/.venv/bin/python\" && test -d \"$HOME/ChordMiniApp/node_modules\"" >nul 2>&1
+  if not errorlevel 1 (
+    set "WSLDIR=!HOMECOPY!"
+    echo   note this folder is on a Windows drive and is used as source only;
+    echo        running the installed copy at !WSLDIR! instead
+    echo        set CHORDMINI_WSL_DIR to run the Windows-drive copy itself
+    rem A mirror copy (no .git of its own) receives the edited sources before it
+    rem runs, so the WSL side never executes stale code. NO_SYNC=1 skips this.
+    if not defined NO_SYNC (
+      wsl.exe !DISTRO_ARG! -- bash -lc "if command -v rsync >/dev/null 2>&1; then if test -d '!HOMECOPY!/'.git; then echo '  skip syncing: this copy keeps its own git history'; else if rsync -a --delete --exclude=.git --exclude=node_modules --exclude=.venv --exclude=.next --exclude=state --exclude=python_backend/data --exclude=.env.local '!SRCDIR!/' '!HOMECOPY!/'; then echo '  ok  synced the edited sources into the WSL copy'; else echo '  xx  syncing the sources failed'; exit 1; fi; fi; fi"
+      if errorlevel 1 (
+        echo   ERROR: could not copy the sources into !WSLDIR!
+        echo          Set NO_SYNC=1 to launch it as it is.
+        pause
+        exit /b 1
+      )
+    )
+  )
 )
 
 rem Already serving? Just open it instead of starting a second copy (the
