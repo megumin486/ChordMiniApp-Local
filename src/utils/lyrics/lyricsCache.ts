@@ -9,7 +9,7 @@
  * the audio comes from the same-origin `/api/audio/<id>` proxy.
  */
 import type { LyricsData } from '@/types/musicAiTypes';
-import { dropCreditLines, extractEmbeddedLyrics } from '@/utils/lyrics/localLyrics';
+import { dropCreditLines, extractEmbeddedLyrics, mergeBilingualLines } from '@/utils/lyrics/localLyrics';
 
 const CACHE_KEY_PREFIX = 'lyrics:';
 const DOCUMENT_KIND = 'local-lyrics';
@@ -66,7 +66,7 @@ export async function saveLyricsForAudio(
         value: {
           kind: DOCUMENT_KIND,
           name: name ?? null,
-          data: { ...lyrics, lines: dropCreditLines(lyrics.lines) },
+          data: { ...lyrics, lines: mergeBilingualLines(dropCreditLines(lyrics.lines)) },
         },
       }),
     });
@@ -91,8 +91,10 @@ export async function loadLyricsForAudio(audioId: string): Promise<CachedLyrics 
     if (!document.found) return null;
     const cached = readCachedLyrics(document.value);
     if (!cached) return null;
-    // Cached entries written before the credit-line filter still carry credits.
-    const lines = dropCreditLines(cached.data.lines);
+    // Cached entries written before the credit-line filter still carry credits,
+    // and entries written before bilingual merging still carry the two tracks
+    // as separate lines.
+    const lines = mergeBilingualLines(dropCreditLines(cached.data.lines));
     if (lines.length === 0) return null;
     return { ...cached, data: { ...cached.data, lines } };
   } catch {

@@ -8,6 +8,7 @@ import type { SegmentationResult } from '@/types/chatbotTypes';
 import { getSegmentationColorForBeatIndex } from '@/utils/chordFormatting';
 
 import { GridLyricText, type BeatGridTimedLyrics } from '@/components/chord-analysis/GridLyricsRow';
+import { LYRIC_GRID_COLOR_VARIABLE_CLASSES } from '@/components/lyrics/lyricsTheme';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -47,10 +48,13 @@ const SWEEP_LINE_FRACTION = 0.2;
 // Gap between chord cells (matches ChordGrid's gap-0.5 = 2px)
 const CELL_GAP = 2;
 const MIN_TIMELINE_BEAT_WIDTH = 36;
+const MIN_TIMELINE_OVERSCAN_PX = 240;
+
+// Drift between the strip's interpolated position and the reported audio time
+// is corrected gently while playing; a large gap snaps immediately.
 const SOFT_SYNC_DRIFT_THRESHOLD = 0.05;
 const HARD_SYNC_DRIFT_THRESHOLD = 0.24;
 const DRIFT_BLEND_FACTOR = 0.35;
-const MIN_TIMELINE_OVERSCAN_PX = 240;
 
 function getEffectiveTimelineBeats(timeSignature: number): number {
   if (timeSignature >= 6 && timeSignature % 3 === 0) {
@@ -83,6 +87,71 @@ export function getUniformTimelineBeatWidth(
   const minBeatWidth = MIN_TIMELINE_BEAT_WIDTH * measureScale;
 
   return Math.max(rawBeatWidth, minBeatWidth);
+}
+
+/**
+ * Builds the time → timeline-x mapping used by the strip for cells *and*
+ * lyrics. Exported so the mapping can be tested against real chord data: it
+ * must be continuous and forward-monotonic, otherwise anything positioned
+ * with it (lyrics included) jumps relative to the sweep line.
+ */
+export function createTimeToNormalizedX(
+  chordEvents: ChordEvent[],
+  pixelsPerSecond: number,
+  timeSignature: number,
+): (time: number) => number {
+  if (chordEvents.length === 0) {
+    return (time: number) => time * pixelsPerSecond;
+  }
+
+  const uniformBeatWidth = getUniformTimelineBeatWidth(
+    chordEvents,
+    pixelsPerSecond,
+    timeSignature,
+  );
+  const lastIdx = chordEvents.length - 1;
+  const lastEvent = chordEvents[lastIdx];
+  const firstEvent = chordEvents[0];
+  const firstEventX = firstEvent.beatIndex * uniformBeatWidth;
+
+  return (time: number): number => {
+    // Before first event
+    if (time <= firstEvent.startTime) {
+      // Preserve the chord grid's absolute beat offset. Shift cells have no
+      // duration, but they still occupy visual beat slots before playback
+      // reaches the first timed event.
+      return firstEventX;
+    }
+
+    // After last event
+    if (time >= lastEvent.endTime) {
+      // Continue scrolling past the end at uniform rate
+      const overshoot = time - lastEvent.endTime;
+      const lastEventSpan = Math.max(lastEvent.beatCount ?? 1, 1);
+      return (lastEvent.beatIndex + lastEventSpan) * uniformBeatWidth + overshoot * pixelsPerSecond;
+    }
+
+    // Binary search for the event containing `time`
+    let lo = 0, hi = lastIdx;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (chordEvents[mid].endTime <= time) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    const event = chordEvents[lo];
+    const eventDuration = event.endTime - event.startTime;
+    // Clamp: when beats are missing from the timeline (N.C. beats are skipped)
+    // a time can land in the silent gap *before* this event, which used to
+    // produce a negative fraction and drag the position backwards.
+    const fraction = eventDuration > 0
+      ? Math.min(1, Math.max(0, (time - event.startTime) / eventDuration))
+      : 0;
+    const eventBeatSpan = Math.max(event.beatCount ?? 1, 1);
+    return (event.beatIndex + fraction * eventBeatSpan) * uniformBeatWidth;
+  };
 }
 
 export interface TimelineVisibleRange {
@@ -155,6 +224,13 @@ function normalizeChordName(
   return root + rest;
 }
 
+// Lyric culling margins. `visibleRange` is derived from the parent's
+// `currentTime`, which only updates a few times per second while audio plays,
+// so culling right at the viewport edge makes lyric text appear in visible
+// steps. Rendering well beyond both edges keeps the slide-in continuous.
+const LYRIC_PRERENDER_LEFT_PX = 400;
+const LYRIC_PRERENDER_RIGHT_PX = 1600;
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export const ScrollingChordStrip = React.memo<ScrollingChordStripProps>(({
@@ -178,6 +254,7 @@ export const ScrollingChordStrip = React.memo<ScrollingChordStripProps>(({
   // ── RAF interpolation refs ────────────────────────────────────────────────
   const rafRef = useRef<number>(0);
   const isPlayingRef = useRef(isPlaying);
+  // ── Playback interpolation anchor (updated on every audio time report) ────
   const playbackBaseRef = useRef({ wallTime: 0, audioTime: currentTime });
   const ppsRef = useRef(pixelsPerSecond);
   const sweepRef = useRef(0);
@@ -292,48 +369,11 @@ export const ScrollingChordStrip = React.memo<ScrollingChordStripProps>(({
     // ── Build time→normalizedX mapping ─────────────────────────────────────
     // For a given playback time, find which event it falls in and interpolate
     // to the uniform-grid x position.
-    const timeToNormalizedX = (time: number): number => {
-      if (chordEvents.length === 0) return time * pixelsPerSecond;
-
-      const firstEvent = chordEvents[0];
-      const firstEventX = firstEvent.beatIndex * uniformBeatWidth;
-
-      // Before first event
-      if (time <= firstEvent.startTime) {
-        // Preserve the chord grid's absolute beat offset. Shift cells have no
-        // duration, but they still occupy visual beat slots before playback
-        // reaches the first timed event.
-        return firstEventX;
-      }
-
-      // After last event
-      const lastIdx = chordEvents.length - 1;
-      const lastEvent = chordEvents[lastIdx];
-      if (time >= lastEvent.endTime) {
-        // Continue scrolling past the end at uniform rate
-        const overshoot = time - lastEvent.endTime;
-        const lastEventSpan = Math.max(lastEvent.beatCount ?? 1, 1);
-        return (lastEvent.beatIndex + lastEventSpan) * uniformBeatWidth + overshoot * pixelsPerSecond;
-      }
-
-      // Binary search for the event containing `time`
-      let lo = 0, hi = lastIdx;
-      while (lo < hi) {
-        const mid = (lo + hi) >>> 1;
-        if (chordEvents[mid].endTime <= time) {
-          lo = mid + 1;
-        } else {
-          hi = mid;
-        }
-      }
-      const event = chordEvents[lo];
-      const eventDuration = event.endTime - event.startTime;
-      const fraction = eventDuration > 0
-        ? (time - event.startTime) / eventDuration
-        : 0;
-      const eventBeatSpan = Math.max(event.beatCount ?? 1, 1);
-      return (event.beatIndex + fraction * eventBeatSpan) * uniformBeatWidth;
-    };
+    const timeToNormalizedX = createTimeToNormalizedX(
+      chordEvents,
+      pixelsPerSecond,
+      timeSignature,
+    );
 
 
     // ── Build chord boxes with uniform positions ──────────────────────────
@@ -416,19 +456,12 @@ export const ScrollingChordStrip = React.memo<ScrollingChordStripProps>(({
   const hasLyrics = Boolean(gridLyrics?.lyrics?.lines?.length);
 
   const lyricPlacements = useMemo(() => {
-    if (!gridLyrics?.lyrics?.lines?.length || chordBoxes.length === 0) return [];
+    if (!gridLyrics?.lyrics?.lines?.length) return [];
     return gridLyrics.lyrics.lines.map((line) => {
-      let closestBox = chordBoxes[0];
-      let minDelta = Math.abs(chordBoxes[0].startTime - line.startTime);
-      for (let i = 1; i < chordBoxes.length; i++) {
-        const box = chordBoxes[i];
-        const delta = Math.abs(box.startTime - line.startTime);
-        if (delta < minDelta) {
-          minDelta = delta;
-          closestBox = box;
-        }
-      }
-      const x = closestBox ? closestBox.x : timeToNormalizedX(line.startTime);
+      // Place each line at its own timestamp. Snapping to the nearest chord
+      // cell shifted lines by up to a full cell (~1.8 s on real data), so the
+      // text ran ahead of or behind the words it belongs to.
+      const x = timeToNormalizedX(line.startTime);
       return {
         line,
         x,
@@ -436,10 +469,14 @@ export const ScrollingChordStrip = React.memo<ScrollingChordStripProps>(({
         endTime: line.endTime,
       };
     });
-  }, [gridLyrics, chordBoxes, timeToNormalizedX]);
+  }, [gridLyrics, timeToNormalizedX]);
 
   const visiblePlacements = useMemo(() => {
-    return lyricPlacements.filter((p) => p.x + 300 >= visibleRange.startX && p.x <= visibleRange.endX);
+    return lyricPlacements.filter(
+      (p) =>
+        p.x >= visibleRange.startX - LYRIC_PRERENDER_LEFT_PX &&
+        p.x <= visibleRange.endX + LYRIC_PRERENDER_RIGHT_PX,
+    );
   }, [lyricPlacements, visibleRange]);
 
   // ── Stable ChordCell callbacks (memoized to avoid re-renders) ─────────────
@@ -482,7 +519,11 @@ export const ScrollingChordStrip = React.memo<ScrollingChordStripProps>(({
       {/* Scrolling chord strip – transform is driven by RAF/effect, not inline */}
       <div
         ref={stripInnerRef}
-        className="absolute top-0 bottom-0"
+        // GridLyricText paints the active line with a text-clipped gradient
+        // whose colors come from CSS variables. Without these variables the
+        // gradient is invalid and the transparent text fill makes the line
+        // vanish exactly while it is being sung.
+        className={`absolute top-0 bottom-0 ${LYRIC_GRID_COLOR_VARIABLE_CLASSES}`}
         style={{
           width: totalWidth + containerWidth,
           willChange: 'transform',

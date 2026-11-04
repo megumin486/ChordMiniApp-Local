@@ -67,6 +67,27 @@ describe('useProcessedLyrics (beat-aligned)', () => {
     }
   });
 
+  test('keeps both lines of a bilingual pair that share a startTime', () => {
+    const chords = [{ time: 0, chord: 'C' }];
+    const lyrics = mkLyrics([
+      { startTime: 0.31, endTime: 0.56, text: 'original line' },
+      { startTime: 0.31, endTime: 1.16, text: 'translated line' }
+    ]);
+
+    const { result } = renderHook(() => useProcessedLyrics({
+      lyrics: lyrics as any,
+      beatAlignedChords: chords,
+      segmentationData: null
+    }));
+
+    const texts = result.current.map((line: any) => line.text);
+    expect(texts).toContain('original line');
+    expect(texts).toContain('translated line');
+
+    const original = result.current.find((line: any) => line.text === 'original line');
+    expect(original!.endTime).toBeGreaterThan(original!.startTime);
+  });
+
   test('Test case 4: fallback with empty chords yields only original lyrics', () => {
     const lyrics = mkLyrics([{ startTime: 0, endTime: 2, text: 'hello world' }]);
     const { result } = renderHook(() => useProcessedLyrics({

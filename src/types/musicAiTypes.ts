@@ -19,6 +19,14 @@ export interface LyricLine {
   text: string;
   chords?: ChordMarker[]; // Optional array of chord markers
   wordTimings?: LyricWordTiming[];
+  /**
+   * Second text track for the same sung line: the translation of a bilingual
+   * lyric file, or the original text when `text` holds the translation.
+   * Kept on the line so chords stay attached to a single line.
+   */
+  translation?: string;
+  /** Best-effort language of `translation` ('ja' | 'ko' | 'zh' | 'latin' | ...). */
+  translationLanguage?: string;
 }
 
 /**
@@ -56,6 +64,9 @@ export interface SynchronizedLyrics {
     text: string;
     chords: ChordMarker[];
     wordTimings?: LyricWordTiming[];
+    /** Second text track when the source is bilingual; mirrors LyricLine. */
+    translation?: string;
+    translationLanguage?: string;
   }>;
   error?: string; // Optional error message when lyrics synchronization fails
 }

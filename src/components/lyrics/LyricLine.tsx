@@ -597,6 +597,20 @@ const LyricLineComponent: React.FC<LyricLineProps> = ({
           ))}
         </div>
 
+        {/* Second text track of a bilingual pair, dimmed under the sung line */}
+        {line.translation && (
+          <div
+            className={`mt-1 ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}
+            style={{
+              fontSize: `${fontSize * 0.82}px`,
+              opacity: 0.75,
+              lineHeight: 1.35
+            }}
+          >
+            {line.translation}
+          </div>
+        )}
+
         {/* Display translated texts for each selected language */}
         {translatedTexts.length > 0 && (
           <div className={`mt-2 pt-2 border-t ${darkMode ? 'border-gray-600' : 'border-gray-200'}`}>

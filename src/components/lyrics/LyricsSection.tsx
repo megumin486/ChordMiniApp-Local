@@ -166,6 +166,8 @@ export const LyricsSection: React.FC<LyricsSectionProps> = ({
         position: chord.position ?? 0,
       })),
       wordTimings: line.wordTimings?.map((wordTiming) => ({ ...wordTiming })),
+      translation: line.translation,
+      translationLanguage: line.translationLanguage,
     })),
     error: displaySourceLyrics.error,
   }), [displaySourceLyrics]);

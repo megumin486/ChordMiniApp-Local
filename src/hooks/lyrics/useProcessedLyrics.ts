@@ -23,6 +23,9 @@ interface LyricLine {
   text: string;
   chords: ChordMarker[];
   wordTimings?: LyricWordTiming[];
+  /** Second text track of a bilingual pair; see musicAiTypes.LyricLine. */
+  translation?: string;
+  translationLanguage?: string;
 }
 
 interface SynchronizedLyrics {
@@ -302,6 +305,8 @@ export const useProcessedLyrics = ({
           startTime: line.startTime,
           endTime: line.endTime,
           text: line.text,
+          translation: line.translation,
+          translationLanguage: line.translationLanguage,
           chords: line.chords ? [...line.chords] : [],
           wordTimings: line.wordTimings ? line.wordTimings.map((wordTiming) => ({ ...wordTiming })) : undefined,
         })),
@@ -314,6 +319,8 @@ export const useProcessedLyrics = ({
           startTime: line.startTime,
           endTime: line.endTime,
           text: line.text,
+          translation: line.translation,
+          translationLanguage: line.translationLanguage,
           chords: line.chords ? line.chords.map(chord => ({
             position: chord.position,
             chord: chord.chord,
@@ -456,20 +463,26 @@ export const useProcessedLyrics = ({
       const cur: ProcessedLyricLine = sorted[i];
       const next: ProcessedLyricLine = sorted[i + 1];
 
-      if (cur.endTime > next.startTime - minGap) {
-        // Prefer keeping the lyric line intact when overlapping with chord-only placeholder
-        const preferNext = !!(!next.isChordOnly && !next.isInstrumental);
-        const preferCur = !!(!cur.isChordOnly && !cur.isInstrumental);
+      if (cur.endTime <= next.startTime - minGap) continue;
 
-        if (!preferCur && preferNext) {
-          // Current is placeholder overlapping into a lyric line: clamp current endTime
-          cur.endTime = Math.max(cur.startTime, next.startTime - minGap);
-          if (typeof cur.duration === 'number') cur.duration = Math.max(0, cur.endTime - cur.startTime);
-        } else {
-          // Otherwise clamp to avoid any overlap
-          cur.endTime = Math.max(cur.startTime, Math.min(cur.endTime, next.startTime - minGap));
-          if (typeof cur.duration === 'number') cur.duration = Math.max(0, cur.endTime - cur.startTime);
-        }
+      const curIsSung = !cur.isChordOnly && !cur.isInstrumental;
+      const nextIsSung = !next.isChordOnly && !next.isInstrumental;
+
+      // Two sung lines may share a startTime (a bilingual lyric file puts the
+      // original and its translation on the same timestamp). Clamping the
+      // shorter one to the shared start would zero it out and the zero-duration
+      // filter below would erase it, so sung pairs are left alone and only
+      // placeholders are clipped.
+      if (curIsSung && nextIsSung) continue;
+
+      if (!curIsSung && nextIsSung) {
+        // Current is placeholder overlapping into a lyric line: clamp current endTime
+        cur.endTime = Math.max(cur.startTime, next.startTime - minGap);
+        if (typeof cur.duration === 'number') cur.duration = Math.max(0, cur.endTime - cur.startTime);
+      } else {
+        // Otherwise move the following placeholder past the lyric line it overlaps
+        next.startTime = Math.max(next.startTime, cur.endTime + minGap);
+        if (typeof next.duration === 'number') next.duration = Math.max(0, next.endTime - next.startTime);
       }
     }
 

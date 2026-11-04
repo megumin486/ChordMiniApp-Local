@@ -121,10 +121,12 @@ function ActiveLyricText({ line, mode }: { line: LyricLine; mode: 'word' | 'line
         const tokenProgressPercent = Math.max(0, Math.min(1, progressInToken / tokenLength)) * 100;
 
         const gradientStyle: React.CSSProperties = {
-          backgroundImage: `linear-gradient(to right, var(--swept-color) 0%, var(--swept-color) ${tokenProgressPercent}%, currentColor ${tokenProgressPercent}%, currentColor 100%)`,
+          backgroundImage: `linear-gradient(to right, var(--swept-color, currentColor) 0%, var(--swept-color, currentColor) ${tokenProgressPercent}%, currentColor ${tokenProgressPercent}%, currentColor 100%)`,
           backgroundSize: '100% 100%',
           WebkitBackgroundClip: 'text',
           backgroundClip: 'text',
+          // Fallback matters: with background-clip:text a missing gradient
+          // makes the text fully transparent (it disappears mid-line).
           WebkitTextFillColor: 'transparent',
           display: 'inline-block',
         };

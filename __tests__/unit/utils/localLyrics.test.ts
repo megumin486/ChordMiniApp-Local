@@ -11,6 +11,7 @@ import type { LyricsData } from '@/types/musicAiTypes';
 import {
   dropCreditLines,
   extractEmbeddedLyrics,
+  mergeBilingualLines,
   parseLrc,
   parseLyricsFile,
   parsePlainLyrics,
@@ -614,5 +615,120 @@ describe('resolveLocalLyrics', () => {
     const audio = bytesToFile(id3Tag(id3Frame('TIT2', concat([3], utf8Bytes('Title')), 3), 3), 'song.mp3');
     expect(await resolveLocalLyrics(audio, null)).toBeNull();
     expect(await resolveLocalLyrics(audio, textToFile('   \n ', 'blank.txt'))).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bilingual pairs (original + translation on the same line)
+// ---------------------------------------------------------------------------
+
+describe('bilingual pairs', () => {
+  // "\u3053\u3093\u306b\u3061\u306f" (Japanese) and "\u4f60\u597d\u4e16\u754c" (Chinese)
+  // are written as escapes so this source file stays ASCII.
+  const japanese = '\u3053\u3093\u306b\u3061\u306f';
+  const chinese = '\u4f60\u597d\u4e16\u754c';
+
+  it('folds a same-timestamp original/translation pair into one line', () => {
+    const lrc = [
+      '[00:00.31]' + japanese,
+      '[00:00.31]' + chinese,
+      '[00:01.16]second',
+    ].join('\n');
+
+    const data = parseLrc(lrc);
+    expect(data.lines).toHaveLength(2);
+    expect(data.lines[0].text).toBe(japanese);
+    expect(data.lines[0].translation).toBe(chinese);
+    expect(data.lines[0].translationLanguage).toBe('zh');
+    expect(data.lines[0].startTime).toBeCloseTo(0.31, 3);
+    expect(data.lines[0].endTime).toBeCloseTo(1.16, 3);
+    expect(data.lines[1].text).toBe('second');
+  });
+
+  it('keeps the file-majority language as the sung text', () => {
+    const lrc = [
+      '[00:00.00]' + chinese,
+      '[00:00.00]hello world',
+      '[00:02.00]we sing in english here',
+      '[00:04.00]and the rest of this file is latin',
+    ].join('\n');
+
+    const data = parseLrc(lrc);
+    expect(data.lines[0].text).toBe('hello world');
+    expect(data.lines[0].translation).toBe(chinese);
+    expect(data.lines[0].translationLanguage).toBe('zh');
+  });
+
+  it('ignores an untimed line so monolingual files are never guessed into translations', () => {
+    const lrc = ['[00:00.31]' + japanese, chinese, '[00:01.16]next'].join('\n');
+
+    const data = parseLrc(lrc);
+    expect(data.lines).toHaveLength(2);
+    expect(data.lines[0].text).toBe(japanese);
+    expect(data.lines[0].translation).toBeUndefined();
+  });
+
+  it('leaves monolingual lines alone when they share a timestamp and a script', () => {
+    const lrc = ['[00:01.00]same script one', '[00:01.00]same script two'].join('\n');
+
+    const data = parseLrc(lrc);
+    expect(data.lines).toHaveLength(2);
+    expect(data.lines.every((line) => line.translation === undefined)).toBe(true);
+  });
+
+  it('does not split a monolingual line that happens to contain a bar', () => {
+    const data = parseLrc('[00:01.00]la la | la la');
+
+    expect(data.lines).toHaveLength(1);
+    expect(data.lines[0].text).toBe('la la | la la');
+  });
+
+  it('splits an explicit separator into one line with a translation', () => {
+    const lrc = '[00:00.31]' + japanese + ' | ' + chinese;
+
+    const data = parseLrc(lrc);
+    expect(data.lines).toHaveLength(1);
+    expect(data.lines[0].text).toBe(japanese);
+    expect(data.lines[0].translation).toBe(chinese);
+  });
+
+  it('splits a bilingual SRT cue into one line with a translation', () => {
+    const srt = ['1', '00:00:00,310 --> 00:00:01,160', japanese, chinese].join('\n');
+
+    const data = parseSrt(srt);
+    expect(data.lines).toHaveLength(1);
+    expect(data.lines[0].text).toBe(japanese);
+    expect(data.lines[0].translation).toBe(chinese);
+  });
+
+  it('leaves two lines in the same script alone', () => {
+    const lrc = ['[00:00.31]first line', '[00:00.31]second line'].join('\n');
+
+    expect(parseLrc(lrc).lines).toHaveLength(2);
+  });
+
+  it('leaves already merged lines untouched', () => {
+    const lines = [{
+      startTime: 0.31,
+      endTime: 1.16,
+      text: japanese,
+      translation: chinese,
+      translationLanguage: 'zh',
+    }];
+
+    expect(mergeBilingualLines(lines)).toEqual(lines);
+  });
+
+  it('migrates a legacy two-line pair from the lyrics cache', () => {
+    const legacy = [
+      { startTime: 0.31, endTime: 0.56, text: japanese },
+      { startTime: 0.31, endTime: 1.16, text: chinese },
+    ];
+
+    const merged = mergeBilingualLines(legacy);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].text).toBe(japanese);
+    expect(merged[0].translation).toBe(chinese);
+    expect(merged[0].endTime).toBeCloseTo(1.16, 3);
   });
 });

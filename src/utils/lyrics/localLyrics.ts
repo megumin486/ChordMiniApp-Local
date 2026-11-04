@@ -35,6 +35,8 @@ interface DraftLine {
   startTime: number;
   endTime?: number;
   text: string;
+  translation?: string;
+  translationLanguage?: string;
 }
 
 function emptyLyrics(): LyricsData {
@@ -55,6 +57,237 @@ function stripBom(text: string): string {
 
 function roundTime(seconds: number): number {
   return Math.round(seconds * 1000) / 1000;
+}
+
+// ---------------------------------------------------------------------------
+// Bilingual lyric pairs
+// ---------------------------------------------------------------------------
+//
+// Bilingual lyric files repeat every sung line twice (original and
+// translation). Keeping them as two lines breaks chord placement: the chord
+// pipeline assigns chords per line, so the second line ends up without chords,
+// and the chord grid would render the same words twice. The pair is therefore
+// folded into a single line: `text` holds the sung text, `translation` holds
+// the other track, and both share one time range.
+
+type ScriptName = 'kana' | 'hangul' | 'han' | 'latin';
+
+interface ScriptCounts {
+  kana: number;
+  hangul: number;
+  han: number;
+  latin: number;
+  total: number;
+}
+
+/** Inclusive code point ranges per script family. */
+const KANA_RANGES: Array<[number, number]> = [
+  [0x3040, 0x309f],
+  [0x30a0, 0x30ff],
+  [0x31f0, 0x31ff],
+  [0xff66, 0xff9d],
+];
+
+const HANGUL_RANGES: Array<[number, number]> = [
+  [0x1100, 0x11ff],
+  [0x3130, 0x318f],
+  [0xac00, 0xd7af],
+];
+
+const HAN_RANGES: Array<[number, number]> = [
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xf900, 0xfaff],
+];
+
+function inCodeRanges(code: number, ranges: Array<[number, number]>): boolean {
+  for (const [start, end] of ranges) {
+    if (code >= start && code <= end) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function countScripts(text: string): ScriptCounts {
+  const counts: ScriptCounts = { kana: 0, hangul: 0, han: 0, latin: 0, total: 0 };
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (inCodeRanges(code, KANA_RANGES)) {
+      counts.kana += 1;
+    } else if (inCodeRanges(code, HANGUL_RANGES)) {
+      counts.hangul += 1;
+    } else if (inCodeRanges(code, HAN_RANGES)) {
+      counts.han += 1;
+    } else if (
+      (code >= 0x0041 && code <= 0x005a) ||
+      (code >= 0x0061 && code <= 0x007a) ||
+      (code >= 0x00c0 && code <= 0x024f)
+    ) {
+      counts.latin += 1;
+    } else {
+      continue; // punctuation, digits, symbols: not a script signal
+    }
+    counts.total += 1;
+  }
+  return counts;
+}
+
+/** The script family that carries most of the file, used to pick the sung text. */
+function dominantScript(texts: string[]): ScriptName {
+  const totals: ScriptCounts = { kana: 0, hangul: 0, han: 0, latin: 0, total: 0 };
+  for (const text of texts) {
+    const counts = countScripts(text);
+    totals.kana += counts.kana;
+    totals.hangul += counts.hangul;
+    totals.han += counts.han;
+    totals.latin += counts.latin;
+    totals.total += counts.total;
+  }
+  if (totals.total === 0) {
+    return 'latin';
+  }
+  // A little kana in the file means the lyrics themselves are Japanese, even
+  // when most characters are kanji.
+  if (totals.kana / totals.total >= 0.02) {
+    return 'kana';
+  }
+  if (totals.hangul / totals.total >= 0.02) {
+    return 'hangul';
+  }
+  return totals.han > totals.latin ? 'han' : 'latin';
+}
+
+function matchRatio(text: string, dominant: ScriptName): number {
+  const counts = countScripts(text);
+  if (counts.total === 0) {
+    return 0;
+  }
+  return counts[dominant] / counts.total;
+}
+
+function inferLanguage(text: string): string | undefined {
+  const counts = countScripts(text);
+  if (counts.total === 0) {
+    return undefined;
+  }
+  if (counts.kana > 0) {
+    return 'ja';
+  }
+  if (counts.hangul > 0) {
+    return 'ko';
+  }
+  if (counts.han > 0) {
+    return 'zh';
+  }
+  return 'latin';
+}
+
+const SAME_START_TOLERANCE_SECONDS = 0.01;
+const BILINGUAL_SEPARATOR_PATTERN = /\s+[|｜／]\s+/;
+const LINE_BREAK_PATTERN = /\n+/;
+
+/**
+ * True when two texts look like the original and its translation: they differ
+ * in script family in a way that only a translation would (Japanese kana vs
+ * Chinese/English, Hangul vs anything else, CJK vs Latin). Two lines in the
+ * same script are left alone, since that is far more likely to be two sung
+ * lines than a translation.
+ */
+function isTranslationPair(first: string, second: string, dominant: ScriptName): boolean {
+  const a = countScripts(first);
+  const b = countScripts(second);
+  if (a.total === 0 || b.total === 0) {
+    return false;
+  }
+  if (first.trim() === second.trim()) {
+    return false;
+  }
+  if ((a.kana > 0) !== (b.kana > 0)) {
+    return true;
+  }
+  if ((a.hangul > 0) !== (b.hangul > 0)) {
+    return true;
+  }
+  const aHan = a.han / a.total;
+  const bHan = b.han / b.total;
+  const aLatin = a.latin / a.total;
+  const bLatin = b.latin / b.total;
+  if (aHan > 0.5 && bLatin > 0.7) {
+    return true;
+  }
+  if (bHan > 0.5 && aLatin > 0.7) {
+    return true;
+  }
+  return Boolean(dominant === 'kana' && a.kana === 0 && b.kana === 0 && Math.abs(aHan - bHan) > 0.6);
+}
+
+/**
+ * Splits one draft that carries both tracks (a multi-line subtitle cue or an
+ * explicit `original | translation` separator) into separate drafts, so the
+ * regular same-timestamp merge can fold them back into a single line.
+ */
+function expandBilingualDraft(draft: DraftLine, dominant: ScriptName): DraftLine[] {
+  const rawParts = draft.text.includes('\n')
+    ? draft.text.split(LINE_BREAK_PATTERN)
+    : draft.text.split(BILINGUAL_SEPARATOR_PATTERN);
+  const parts = rawParts.map((part) => part.trim()).filter((part) => part !== '');
+  if (parts.length < 2) {
+    return [draft];
+  }
+  let foundPair = false;
+  for (let i = 0; i + 1 < parts.length; i += 1) {
+    if (isTranslationPair(parts[i], parts[i + 1], dominant)) {
+      foundPair = true;
+      break;
+    }
+  }
+  if (!foundPair) {
+    return [draft];
+  }
+  return parts.map((part) => ({
+    startTime: draft.startTime,
+    endTime: draft.endTime,
+    text: part,
+  }));
+}
+
+/**
+ * Folds adjacent lines that share a start time and differ in script into one
+ * line with a `translation`. Exported so cached lyrics can be migrated.
+ */
+export function mergeBilingualLines(lines: LyricLine[]): LyricLine[] {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return [];
+  }
+  const dominant = dominantScript(lines.map((line) => line.text));
+  const merged: LyricLine[] = [];
+  for (const line of lines) {
+    const previous = merged[merged.length - 1];
+    if (
+      previous
+      && !previous.translation
+      && !line.translation
+      && Math.abs(previous.startTime - line.startTime) <= SAME_START_TOLERANCE_SECONDS
+      && isTranslationPair(previous.text, line.text, dominant)
+    ) {
+      const previousRatio = matchRatio(previous.text, dominant);
+      const lineRatio = matchRatio(line.text, dominant);
+      // The side that looks like the rest of the file is the sung text.
+      const primary = lineRatio > previousRatio ? line : previous;
+      const secondary = primary === previous ? line : previous;
+      merged[merged.length - 1] = {
+        ...primary,
+        startTime: Math.min(primary.startTime, secondary.startTime),
+        endTime: Math.max(primary.endTime, secondary.endTime),
+        translation: secondary.text,
+        translationLanguage: inferLanguage(secondary.text),
+      };
+      continue;
+    }
+    merged.push({ ...line });
+  }
+  return merged;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,9 +621,14 @@ export function dropCreditLines(lines: LyricLine[]): LyricLine[] {
  *     than its own start, otherwise DEFAULT_LAST_LINE_SECONDS after its start
  */
 function finalizeLines(drafts: DraftLine[], durationSeconds?: number): LyricLine[] {
-  const indexed = drafts
-    .filter((draft) => !isCreditLine(draft.text))
-    .map((draft, index) => ({ draft, index }));
+  const cleaned = drafts.filter((draft) => !isCreditLine(draft.text));
+  const dominant = dominantScript(cleaned.map((draft) => draft.text));
+  const indexed: Array<{ draft: DraftLine; index: number }> = [];
+  cleaned.forEach((draft, index) => {
+    for (const part of expandBilingualDraft(draft, dominant)) {
+      indexed.push({ draft: part, index });
+    }
+  });
   indexed.sort((a, b) => {
     const delta = a.draft.startTime - b.draft.startTime;
     return delta !== 0 ? delta : a.index - b.index;
@@ -413,13 +651,19 @@ function finalizeLines(drafts: DraftLine[], durationSeconds?: number): LyricLine
         end = current.startTime + MIN_LINE_SECONDS;
       }
     }
-    lines.push({
+    const line: LyricLine = {
       startTime: roundTime(current.startTime),
       endTime: roundTime(end),
       text: current.text,
-    });
+    };
+    if (current.translation) {
+      line.translation = current.translation;
+      line.translationLanguage = current.translationLanguage ?? inferLanguage(current.translation);
+    }
+    lines.push(line);
   }
-  return lines;
+  // Equal-timestamp pairs (bilingual lines) become one line with a translation.
+  return mergeBilingualLines(lines);
 }
 
 // ---------------------------------------------------------------------------
@@ -482,7 +726,13 @@ export function parseLrc(text: string, durationSeconds?: number): LyricsData {
         match = timestampPattern.exec(rawLine);
       }
       if (stamps.length === 0) {
-        continue; // pure ID tag line such as [ar:...], or junk
+        // Untimed prose and ID tags are not lyric lines. A hand-written LRC may
+        // put a translation on its own line without a timestamp, but that cannot
+        // be told apart from a wrapped continuation of a monolingual file, so it
+        // is ignored instead of being guessed into `translation`. Bilingual files
+        // with shared timestamps, multi-line cues and explicit separators are
+        // handled below and in mergeBilingualLines.
+        continue;
       }
       const content = rawLine.replace(timestampPattern, '').trim();
       if (content === '') {

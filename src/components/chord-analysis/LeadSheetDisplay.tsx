@@ -35,6 +35,8 @@ interface LyricLine {
   text: string;
   chords: ChordMarker[];
   wordTimings?: LyricWordTiming[];
+  translation?: string;
+  translationLanguage?: string;
 }
 interface SynchronizedLyrics {
   lines: LyricLine[];
