@@ -6,6 +6,9 @@
 #   ./start.sh --check         report what is installed / missing; change nothing
 #   ./start.sh --setup-only    install and prepare only, start nothing
 #   ./start.sh --prod          build the frontend and run it in production mode
+#                              (reuses the previous build when sources are unchanged)
+#   ./start.sh --prod --rebuild   always rebuild, even if the build looks current
+#   ./start.sh --prod --no-build  never build; fail if there is no build yet
 #   ./start.sh --no-backend    start only the Next.js frontend
 #   ./start.sh --no-frontend   start only the Flask backend
 #   ./start.sh --lfs           also download the SongFormer LFS checkpoints
@@ -48,6 +51,8 @@ PROD=0
 WITH_LFS=0
 START_BACKEND=1
 START_FRONTEND=1
+REBUILD=0
+NO_BUILD=0
 BACKEND_PID=""
 FRONTEND_PID=""
 
@@ -344,11 +349,38 @@ start_backend() {
   printf '       pid %s, log %s\n' "$BACKEND_PID" "$BACKEND_LOG"
 }
 
+# True when .next holds a production build made from the current sources, so a
+# restart can skip the (slow) rebuild. Anything that is inlined at build time
+# counts as an input: NEXT_PUBLIC_* comes from .env.local/.env.example.
+frontend_build_is_current() {
+  local stamp="$ROOT/.next/BUILD_ID"
+  [ -f "$stamp" ] || return 1
+  [ -d "$ROOT/.next/server" ] || return 1
+
+  local newer
+  newer=$(find "$ROOT/src" "$ROOT/public" "$ENV_FILE" "$ENV_EXAMPLE" \
+    "$ROOT/package.json" "$ROOT/package-lock.json" "$ROOT/next.config.js" \
+    "$ROOT/tsconfig.json" "$ROOT/next-env.d.ts" \
+    "$ROOT"/tailwind.config* "$ROOT"/postcss.config* \
+    -newer "$stamp" -print -quit 2>/dev/null)
+  [ -z "$newer" ]
+}
+
 start_frontend() {
   if [ "$PROD" -eq 1 ]; then
-    step "building the frontend (this can take a few minutes)"
-    (cd "$ROOT" && NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build) \
-      || die "npm run build failed"
+    if [ "$NO_BUILD" -eq 1 ]; then
+      [ -f "$ROOT/.next/BUILD_ID" ] || die "--no-build needs an existing build — run ./start.sh --prod once"
+      skip "reusing the existing frontend build (--no-build)"
+    elif [ "$REBUILD" -eq 0 ] && frontend_build_is_current; then
+      skip "reusing the existing frontend build (sources unchanged — pass --rebuild to force)"
+    else
+      step "building the frontend (this can take a few minutes)"
+      local build_start
+      build_start=$(date +%s)
+      (cd "$ROOT" && NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build) \
+        || die "npm run build failed"
+      ok "frontend build finished in $(( $(date +%s) - build_start ))s"
+    fi
     step "starting the Next.js frontend in production mode on port $FRONTEND_PORT"
     if have setsid; then
       (cd "$ROOT" && exec setsid env PYTHON_API_URL="$PYTHON_API_URL" \
@@ -474,6 +506,8 @@ main() {
       --check)       CHECK_ONLY=1 ;;
       --setup-only)  SETUP_ONLY=1 ;;
       --prod)        PROD=1 ;;
+      --rebuild)     REBUILD=1 ;;
+      --no-build)    NO_BUILD=1 ;;
       --lfs)         WITH_LFS=1 ;;
       --no-backend)  START_BACKEND=0 ;;
       --no-frontend) START_FRONTEND=0 ;;

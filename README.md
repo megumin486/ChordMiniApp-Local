@@ -114,17 +114,21 @@ The first run takes a few minutes and does all of the following:
 
 Runtime logs are written to `/tmp/chordmini-backend.log` and `/tmp/chordmini-frontend.log`. If a port is already taken the launcher stops instead of starting a second copy — it never kills processes it did not start.
 
-**Use `--prod` day to day.** It builds once and serves the prebuilt app, so pages appear immediately. Plain `./start.sh` starts the development server instead: faster to start, but each page is compiled on first visit and may take several seconds.
+**Use `--prod` day to day.** It builds once and serves the prebuilt app, so pages appear immediately. The build is reused on later runs as long as the sources are unchanged — a restart then takes a few seconds instead of a full build. Pass `--rebuild` to force a fresh build, or `--no-build` to never compile (it fails if no build exists yet). Plain `./start.sh` starts the development server instead: faster to start, but each page is compiled on first visit and may take several seconds.
 
 | Command | What it does |
 | --- | --- |
-| `./start.sh --prod` | build once, then serve in production mode — **recommended** |
+| `./start.sh --prod` | build once, then serve in production mode — **recommended** (reuses the build when sources are unchanged) |
+| `./start.sh --prod --rebuild` | force a fresh production build |
+| `./start.sh --prod --no-build` | never compile: start on the existing build, fail if there is none |
 | `./start.sh` | development server (on-demand compilation, hot reload) |
 | `./start.sh --check` | report only: toolchain, virtualenv, dependencies, submodules, ports |
 | `./start.sh --setup-only` | prepare everything, start nothing |
 | `./start.sh --lfs` | also fetch the SongFormer Git LFS checkpoints |
 | `./start.sh --no-backend` / `--no-frontend` | start only one side |
 | `BACKEND_PORT=… FRONTEND_PORT=… ./start.sh` | run on different ports |
+
+On Windows, `start.cmd` does the same from a double click: it opens WSL, runs `./start.sh --prod` in the project directory, and opens `http://127.0.0.1:3000` in your browser as soon as the frontend answers. Closing the window stops both services. Nothing is hard-coded: the launcher uses your default WSL distribution and maps its own folder into WSL, so a clone on a Windows drive and a clone inside the WSL file system both work. If your project is not where the file sits, or you want another distribution, set `CHORDMINI_WSL_DIR` / `CHORDMINI_WSL_DISTRO`; `CHORDMINI_PORT` changes the port, `NO_BROWSER=1` skips the browser, and any arguments are forwarded to `start.sh` (`start.cmd --check`, `start.cmd --prod --rebuild`).
 
 ### Manual installation
 
