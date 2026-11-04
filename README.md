@@ -370,6 +370,6 @@ Thanks to the projects this app builds on:
 - **chords-db** — [tombatossals/chords-db](https://github.com/tombatossals/chords-db) — guitar diagram fingerings
 - **SheetSage** — [chrisdonahue/sheetsage](https://github.com/chrisdonahue/sheetsage) — experimental melody transcription
 - **OpenSheetMusicDisplay** — [opensheetmusicdisplay](https://github.com/opensheetmusicdisplay/opensheetmusicdisplay) — sheet music rendering
-- **music21** — [cuthbertLab/music21](https://github.com/cuthbertLab/music21) — music theory primitives behind the local harmony engine
+- **music21** — [PyPI](https://pypi.org/project/music21/) · [docs](https://music21.org/music21docs/) — music theory primitives behind the local harmony engine
 - **Spleeter** — [deezer/spleeter](https://github.com/deezer/spleeter) — source separation used by the Beat-Transformer path
 - **smplr** — [danigb/smplr](https://github.com/danigb/smplr) — web-audio soundfont playback for the chord preview
