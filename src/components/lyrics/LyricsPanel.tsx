@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Button } from '@heroui/react';
 import { HiInformationCircle, HiMusicalNote, HiTrash, HiXMark } from 'react-icons/hi2';
 import AppTooltip from '@/components/common/AppTooltip';
 import type { LyricsData, LyricLine } from '@/types/musicAiTypes';
@@ -14,8 +13,8 @@ import type { LyricsData, LyricLine } from '@/types/musicAiTypes';
  * difference is the data source: upstream searched LRCLIB / Genius over the
  * network, while this local-only build displays the lyrics that are already
  * loaded (an embedded tag read from the audio file, or a .lrc / .srt / .txt
- * file picked on the Analyze page). Nothing here touches the network, and the
- * search box filters the loaded lines instead of querying a service.
+ * file picked on the Analyze page). Nothing here touches the network, and there
+ * is no search box: the lines that were loaded are the lines that are shown.
  */
 export interface LyricsPanelProps {
   isOpen: boolean;
@@ -53,8 +52,6 @@ const LyricsPanel: React.FC<LyricsPanelProps> = React.memo(({
   className = '',
 }) => {
   const [displayMode, setDisplayMode] = useState<'sync' | 'static'>('sync');
-  const [filterQuery, setFilterQuery] = useState('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
   const currentLineRef = useRef<HTMLDivElement>(null);
@@ -66,16 +63,10 @@ const LyricsPanel: React.FC<LyricsPanelProps> = React.memo(({
   );
   const syncOn = hasTimedLines && displayMode === 'sync';
 
-  const rows = useMemo(() => {
-    const query = filterQuery.trim().toLowerCase();
-    return lines
-      .map((line, index) => ({ line, index }))
-      .filter(({ line }) => (
-        !query
-        || line.text.toLowerCase().includes(query)
-        || (line.translation ?? '').toLowerCase().includes(query)
-      ));
-  }, [lines, filterQuery]);
+  const rows = useMemo(
+    () => lines.map((line, index) => ({ line, index })),
+    [lines],
+  );
 
   const currentIndex = useMemo(() => {
     if (!syncOn) return -1;
@@ -88,12 +79,6 @@ const LyricsPanel: React.FC<LyricsPanelProps> = React.memo(({
     }
     return -1;
   }, [lines, currentTime, syncOn]);
-
-  useEffect(() => {
-    if (isOpen && searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
-  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !syncOn || !currentLineRef.current || !lyricsContainerRef.current) return;
@@ -201,25 +186,6 @@ const LyricsPanel: React.FC<LyricsPanelProps> = React.memo(({
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={filterQuery}
-                    onChange={(e) => setFilterQuery(e.target.value)}
-                    placeholder="Search loaded lyrics..."
-                    className="flex-1 rounded-lg border border-black/5 bg-white/72 px-3 py-2 text-sm text-gray-800 placeholder-gray-400 transition-shadow focus:outline-none focus:ring-2 focus:ring-green-500/60 dark:border-white/10 dark:bg-white/[0.06] dark:text-white dark:placeholder-gray-500"
-                  />
-                  <Button
-                    size="sm"
-                    color="success"
-                    isDisabled={!filterQuery.trim()}
-                    onPress={() => setFilterQuery(filterQuery.trim())}
-                    className="font-semibold px-4"
-                  >
-                    Search
-                  </Button>
-                </div>
               </div>
 
               <div ref={lyricsContainerRef} className="relative flex-1 overflow-y-auto overscroll-contain">
