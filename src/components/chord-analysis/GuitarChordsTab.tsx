@@ -395,7 +395,7 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
   }, [capoFret, setSharedCapoFret]);
 
   // When capo is set, transpose chords DOWN by capo fret count to get the "shape" chord
-  // e.g., capo on fret 2: song has D 鈫?guitarist plays C shape (D transposed -2 = C)
+  // e.g., capo on fret 2: song has D ->guitarist plays C shape (D transposed -2 = C)
   const capoTargetKey = useMemo(() => {
     if (capoFret === 0) return 'C';
     const baseKey = targetKey || keySignature || 'C';
@@ -778,7 +778,7 @@ export const GuitarChordsTab: React.FC<GuitarChordsTabProps> = ({
                     className="flex h-8 w-7 items-center justify-center rounded-full text-sm font-bold text-gray-600 transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-200 dark:hover:bg-white/10"
                     aria-label="Decrease capo fret"
                   >
-                    鈭?
+                    -
                   </button>
                   <input
                     id="capo-input"

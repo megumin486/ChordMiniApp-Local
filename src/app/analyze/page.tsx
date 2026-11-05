@@ -119,7 +119,7 @@ export default function LocalAudioAnalyzePage() {
   // project (FEATURE_SCOPE item 24). The local Sheet Sage service (expected at
   // http://localhost:8082) is not configured on this machine, so the backend
   // probe reports unavailable and the dock toggle renders disabled with the
-  // reason it returns. Enabling it needs no code change 鈥?only the service.
+  // reason it returns. Enabling it needs no code change --only the service.
   const showSheetSage = true;
   useSheetSageBackendAvailability(showSheetSage);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -846,7 +846,7 @@ export default function LocalAudioAnalyzePage() {
       }));
 
       // Start chord and beat analysis with selected detectors using original File object
-      // This avoids the 10x size bloat from AudioBuffer conversion (3.6MB 鈫?41.7MB)
+      // This avoids the 10x size bloat from AudioBuffer conversion (3.6MB ->41.7MB)
       const results = await analyzeAudioWithRateLimit(audioFile, beatDetector, chordDetector);
 
       // FIXED: Clear the stage timeout to prevent it from overriding completion

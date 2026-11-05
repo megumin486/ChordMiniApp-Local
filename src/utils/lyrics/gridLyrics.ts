@@ -4,7 +4,7 @@ import type { BeatGridTimedLyrics } from '@/components/chord-analysis/GridLyrics
 /**
  * Local-only fork: the chord grid used to receive its lyric rows from the
  * LRCLIB search dialog (removed in Phase 5). Whatever lyrics we now have
- * locally 鈥?a file the user picked or lyric tags embedded in the audio 鈥?are
+ * locally --a file the user picked or lyric tags embedded in the audio --are
  * laid into the grid automatically, so these two helpers convert the shared
  * `LyricsData` into the shapes `ChordGrid` / `GuitarChordsTab` /
  * `PianoVisualizerTab` already accept.
