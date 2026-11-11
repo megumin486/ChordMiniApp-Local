@@ -309,3 +309,6 @@ __tests__/*
 __test-results__/
 
 cloudflare/
+
+# Local analysis cache and stored audio (never committed)
+python_backend/data/
