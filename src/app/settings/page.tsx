@@ -3,9 +3,10 @@
 import React from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import Navigation from '@/components/common/Navigation';
-import { Card, CardBody, Switch, Tabs, Tab, Divider } from '@heroui/react';
-import { FiSettings, FiLock, FiMoon, FiShield, FiDatabase } from 'react-icons/fi';
+import { Card, CardBody, Tabs, Tab, Divider } from '@heroui/react';
+import { FiSettings, FiLock, FiMoon, FiShield, FiDatabase, FiMonitor, FiSun } from 'react-icons/fi';
 import type { ReactNode } from 'react';
+import type { ThemePreference } from '@/utils/themePreference';
 
 /**
  * Settings page — local-only build.
@@ -32,8 +33,36 @@ const PrivacyItem = ({ icon, iconBg, title, description }: PrivacyItemProps) => 
   </div>
 );
 
+interface ThemeOption {
+  key: ThemePreference;
+  label: string;
+  description: string;
+  icon: ReactNode;
+}
+
+const THEME_OPTIONS: ThemeOption[] = [
+  {
+    key: 'system',
+    label: 'System',
+    description: 'Follow this computer and switch automatically at sunset',
+    icon: <FiMonitor className="w-4 h-4" />,
+  },
+  {
+    key: 'light',
+    label: 'Light',
+    description: 'Always use the light theme',
+    icon: <FiSun className="w-4 h-4" />,
+  },
+  {
+    key: 'dark',
+    label: 'Dark',
+    description: 'Always use the dark theme',
+    icon: <FiMoon className="w-4 h-4" />,
+  },
+];
+
 export default function SettingsPage() {
-  const { theme, toggleTheme } = useTheme();
+  const { preference, setPreference } = useTheme();
 
   return (
     <div className="min-h-screen dark:bg-dark-bg">
@@ -71,23 +100,69 @@ export default function SettingsPage() {
               <div className="space-y-4 pt-1">
                 <Card shadow="sm" className="border border-gray-200 dark:border-gray-700">
                   <CardBody className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary-50 dark:bg-primary-900/20">
-                          <FiMoon className="w-4 h-4 text-blue" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Dark Mode</h4>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Toggle between light and dark themes</p>
-                        </div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="p-2 rounded-lg bg-primary-50 dark:bg-primary-900/20">
+                        <FiMoon className="w-4 h-4 text-blue" />
                       </div>
-                      <Switch
-                        isSelected={theme === 'dark'}
-                        onValueChange={toggleTheme}
-                        color="primary"
-                        size="sm"
-                      />
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Appearance</h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Choose a theme, or let it follow this computer
+                        </p>
+                      </div>
                     </div>
+
+                    <div
+                      role="group"
+                      aria-label="Theme"
+                      className="grid gap-2 sm:grid-cols-3"
+                    >
+                      {THEME_OPTIONS.map(option => {
+                        const selected = preference === option.key;
+                        return (
+                          <button
+                            key={option.key}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setPreference(option.key)}
+                            className={`flex items-start gap-2 rounded-lg border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-success ${
+                              selected
+                                ? 'border-success bg-success-50 dark:bg-success-900/20'
+                                : 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800'
+                            }`}
+                          >
+                            <span
+                              className={
+                                selected
+                                  ? 'mt-0.5 text-success'
+                                  : 'mt-0.5 text-gray-500 dark:text-gray-400'
+                              }
+                            >
+                              {option.icon}
+                            </span>
+                            <span>
+                              <span
+                                className={`block text-sm font-medium ${
+                                  selected
+                                    ? 'text-success'
+                                    : 'text-gray-900 dark:text-white'
+                                }`}
+                              >
+                                {option.label}
+                              </span>
+                              <span className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                                {option.description}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                      The sun icon in the header switches between light and dark for now;
+                      choose System again here to hand control back to the operating system.
+                    </p>
                   </CardBody>
                 </Card>
               </div>

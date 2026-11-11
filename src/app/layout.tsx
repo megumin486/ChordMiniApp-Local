@@ -151,7 +151,7 @@ export default function RootLayout({
         {/* Blocking script: apply dark class BEFORE first paint to prevent theme flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'){document.documentElement.classList.add('dark')}}catch(e){}if(document.body){document.body.classList.add('theme-ready')}else{document.addEventListener('DOMContentLoaded',function(){document.body.classList.add('theme-ready')},{once:true})}})()`
+            __html: `(function(){try{var t=localStorage.getItem('theme');var mq=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)');var dark=t==='dark'||((t===null||t==='system')&&!!(mq&&mq.matches));document.documentElement.classList.toggle('dark',dark)}catch(e){}if(document.body){document.body.classList.add('theme-ready')}else{document.addEventListener('DOMContentLoaded',function(){document.body.classList.add('theme-ready')},{once:true})}})()`
           }}
         />
         <script

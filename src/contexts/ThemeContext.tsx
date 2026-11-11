@@ -1,11 +1,30 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect, useRef, useSyncExternalStore, ReactNode } from 'react';
-
-type Theme = 'light' | 'dark';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  ReactNode,
+} from 'react';
+import {
+  ResolvedTheme,
+  THEME_PREFERENCE_EVENT,
+  ThemePreference,
+  readStoredPreference,
+  resolveTheme,
+  writeStoredPreference,
+} from '@/utils/themePreference';
 
 interface ThemeContextType {
-  theme: Theme;
+  /** The theme currently painted (resolution of the preference against the system). */
+  theme: ResolvedTheme;
+  /** What the user chose: light, dark, or system. */
+  preference: ThemePreference;
+  setPreference: (preference: ThemePreference) => void;
+  /** Flip to the opposite of the theme currently painted, as an explicit choice. */
   toggleTheme: () => void;
 }
 
@@ -20,8 +39,9 @@ export const useTheme = () => {
 };
 
 // -- useSyncExternalStore helpers --
-// The source of truth is the 'dark' class on <html>, set by the blocking script in layout.tsx.
-// useSyncExternalStore reads it without hydration mismatch (getServerSnapshot returns 'light').
+// The painted theme lives in the 'dark' class on <html>, set by the blocking script
+// in layout.tsx before first paint. useSyncExternalStore reads it without a hydration
+// mismatch (the server snapshot is 'light').
 
 function subscribeToTheme(callback: () => void) {
   const observer = new MutationObserver(callback);
@@ -29,12 +49,40 @@ function subscribeToTheme(callback: () => void) {
   return () => observer.disconnect();
 }
 
-function getThemeSnapshot(): Theme {
+function getThemeSnapshot(): ResolvedTheme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 }
 
-function getServerThemeSnapshot(): Theme {
+function getServerThemeSnapshot(): ResolvedTheme {
   return 'light';
+}
+
+// The preference lives in localStorage. Writes go through setPreference, which also
+// dispatches THEME_PREFERENCE_EVENT so this subscriber re-reads it in the same tab
+// (the 'storage' event only fires in other tabs).
+
+function subscribeToPreference(callback: () => void) {
+  window.addEventListener(THEME_PREFERENCE_EVENT, callback);
+  window.addEventListener('storage', callback);
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  media.addEventListener('change', callback);
+  return () => {
+    window.removeEventListener(THEME_PREFERENCE_EVENT, callback);
+    window.removeEventListener('storage', callback);
+    media.removeEventListener('change', callback);
+  };
+}
+
+function getPreferenceSnapshot(): ThemePreference {
+  return readStoredPreference(window.localStorage);
+}
+
+function getServerPreferenceSnapshot(): ThemePreference {
+  return 'system';
+}
+
+function systemPrefersDark(): boolean {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
 interface ThemeProviderProps {
@@ -42,12 +90,15 @@ interface ThemeProviderProps {
 }
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
-  // Read theme from the DOM class (set by blocking script) via useSyncExternalStore.
-  // Server snapshot is 'light'; client snapshot reads the actual DOM state.
   const theme = useSyncExternalStore(subscribeToTheme, getThemeSnapshot, getServerThemeSnapshot);
+  const preference = useSyncExternalStore(
+    subscribeToPreference,
+    getPreferenceSnapshot,
+    getServerPreferenceSnapshot
+  );
   const themeSwitchTimerRef = useRef<number | null>(null);
 
-  // Reveal the page once hydrated
+  // Reveal the page once hydrated.
   useEffect(() => {
     document.body.classList.add('theme-ready');
 
@@ -58,21 +109,33 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     };
   }, []);
 
-  const toggleTheme = useCallback(() => {
+  // Keep the 'dark' class in sync with the preference, and follow the system while the
+  // preference is 'system' (the media query listener fires when the OS switches).
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.classList.toggle(
+        'dark',
+        resolveTheme(preference, media.matches) === 'dark'
+      );
+    };
+
+    apply();
+    if (preference !== 'system') {
+      return;
+    }
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [preference]);
+
+  const setPreference = useCallback((next: ThemePreference) => {
     if (themeSwitchTimerRef.current !== null) {
       window.clearTimeout(themeSwitchTimerRef.current);
     }
 
     document.documentElement.classList.add('theme-switching');
-
-    const isDark = document.documentElement.classList.contains('dark');
-    if (isDark) {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    } else {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    }
+    writeStoredPreference(next);
+    window.dispatchEvent(new Event(THEME_PREFERENCE_EVENT));
 
     themeSwitchTimerRef.current = window.setTimeout(() => {
       document.documentElement.classList.remove('theme-switching');
@@ -80,8 +143,12 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     }, 180);
   }, []);
 
+  const toggleTheme = useCallback(() => {
+    setPreference(document.documentElement.classList.contains('dark') ? 'light' : 'dark');
+  }, [setPreference]);
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, preference, setPreference, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
