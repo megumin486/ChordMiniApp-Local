@@ -193,16 +193,12 @@ def api_docs_json():
                         "/api/recognize-chords",
                         "/api/recognize-chords-btc-sl",
                         "/api/recognize-chords-btc-pl",
-                        "/api/detect-beats-firebase",
-                        "/api/recognize-chords-firebase"
                     ],
                     "description": "CPU-intensive ML model inference endpoints"
                 },
                 "moderate_processing": {
                     "limit": "10 requests per minute",
                     "endpoints": [
-                        "/api/search-youtube",
-                        "/api/search-piped"
                     ],
                     "description": "External API calls and moderate processing"
                 },

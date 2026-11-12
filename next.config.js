@@ -9,8 +9,9 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 // data domains, quicktube, api.genius, the three Vercel domains,
 // jsdelivr/unpkg, vocalremover, workers.dev and dltkk, none of which had any
 // product reference under src/.
-// Note img-src / frame-src / script-src were left untouched and still carry
-// their own YouTube/Google entries.
+// The remaining YouTube/Google entries in img-src, frame-src and script-src
+// were dropped with the cloud cleanup: the local build never embeds a player,
+// never loads a YouTube thumbnail and never talks to a Google API.
 const connectSrcValues = Array.from(new Set([
   "'self'",
   'blob:',
@@ -23,10 +24,10 @@ const connectSrcValues = Array.from(new Set([
 
 const contentSecurityPolicy = [
   `connect-src ${connectSrcValues.join(' ')}`,
-  "worker-src 'self' blob: https://cdn.jsdelivr.net",
-  "frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://s3.us-east-1.amazonaws.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://www.recaptcha.net",
-  "img-src 'self' data: https://*.googleapis.com https://*.youtube.com https://*.ytimg.com https://*.ggpht.com https://*.google.com https://*.doubleclick.net https://*.googlesyndication.com https://pagead2.googlesyndication.com",
-  "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com https://*.googleapis.com https://*.google.com https://www.gstatic.com https://www.recaptcha.net https://*.doubleclick.net https://*.googlesyndication.com https://gleitz.github.io https://cdn.jsdelivr.net https://unpkg.com",
+  "worker-src 'self' blob:",
+  "frame-src 'self'",
+  "img-src 'self' data:",
+  "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://gleitz.github.io",
 ].join('; ');
 
 

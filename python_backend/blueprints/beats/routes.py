@@ -1,20 +1,18 @@
 """
 Beat detection routes for ChordMini Flask application.
 
-This module provides all beat detection related endpoints including
-main detection, Firebase integration, testing, and model information.
+This module provides all beat detection related endpoints: detection,
+testing and model information.
 """
 
 import os
 import tempfile
 import traceback
-import requests
 from flask import Blueprint, request, jsonify, current_app
 from extensions import limiter
 from config import get_config
 from .validators import (
     validate_beat_detection_request,
-    validate_firebase_beat_detection_request,
     validate_file_size
 )
 from services.audio.tempfiles import temporary_file
@@ -77,16 +75,6 @@ def _detect_beats_cached(
         )
 
     return result
-
-
-def _download_remote_audio_to_temp_path(file_url: str, temp_path: str, timeout_seconds: int = 300) -> None:
-    """Stream a remote audio file into a temporary path."""
-    with requests.get(file_url, stream=True, timeout=(30, timeout_seconds)) as response:
-        response.raise_for_status()
-        with open(temp_path, 'wb') as file_handle:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    file_handle.write(chunk)
 
 
 @beats_bp.route('/api/detect-beats', methods=['POST'])
@@ -158,66 +146,6 @@ def detect_beats():
 
     except Exception as e:
         log_error(f"Unexpected error in detect_beats: {e}")
-        log_error(traceback.format_exc())
-        return jsonify({
-            "success": False,
-            "error": "Internal server error"
-        }), 500
-
-
-@beats_bp.route('/api/detect-beats-firebase', methods=['POST'])
-@limiter.limit(config.get_rate_limit('heavy_processing'))
-def detect_beats_firebase():
-    """
-    Detect beats in an audio file from Firebase Storage URL
-
-    Parameters:
-    - firebase_url: Firebase Storage URL of the audio file
-    - detector: 'beat-transformer', 'madmom', 'librosa', or 'auto' (default)
-
-    Returns:
-    - JSON with beat and downbeat information
-    """
-    try:
-        # Validate request
-        is_valid, error_msg, params = validate_firebase_beat_detection_request()
-        if not is_valid:
-            return jsonify({"error": error_msg}), 400
-
-        # Get beat detection service
-        beat_service = current_app.extensions['services']['beat_detection']
-
-        # Download file from Firebase
-        try:
-            # Create temporary file
-            with temporary_file(suffix='.mp3') as temp_path:
-                _download_remote_audio_to_temp_path(params['firebase_url'], temp_path)
-
-                log_info(f"Downloaded Firebase file to: {temp_path}")
-                log_info(f"File size: {os.path.getsize(temp_path) / (1024 * 1024):.1f}MB")
-
-                # Run beat detection
-                result = beat_service.detect_beats(
-                    file_path=temp_path,
-                    detector=params['detector'],
-                    force=False  # Firebase files use auto size handling
-                )
-
-                # Return result
-                if result.get('success'):
-                    return jsonify(result)
-                else:
-                    return jsonify(result), 500
-
-        except requests.RequestException as e:
-            log_error(f"Failed to download Firebase file: {e}")
-            return jsonify({
-                "success": False,
-                "error": f"Failed to download file from Firebase: {str(e)}"
-            }), 400
-
-    except Exception as e:
-        log_error(f"Unexpected error in detect_beats_firebase: {e}")
         log_error(traceback.format_exc())
         return jsonify({
             "success": False,

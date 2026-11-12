@@ -80,43 +80,6 @@ def validate_chord_recognition_request() -> Tuple[bool, Optional[str], Optional[
     return True, None, file, params
 
 
-def validate_firebase_chord_recognition_request() -> Tuple[bool, Optional[str], Dict[str, Any]]:
-    """
-    Validate a Firebase chord recognition request.
-
-    Returns:
-        Tuple containing:
-        - bool: Whether validation passed
-        - Optional[str]: Error message if validation failed
-        - Dict[str, Any]: Validated parameters
-    """
-    # Check for Firebase URL
-    firebase_url = request.form.get('firebase_url')
-    if not firebase_url:
-        return False, "No Firebase URL provided", {}
-
-    # Validate Firebase URL
-    if 'firebasestorage.googleapis.com' not in firebase_url and 'storage.googleapis.com' not in firebase_url:
-        return False, "Invalid Firebase Storage URL", {}
-
-    # Validate detector parameter
-    detector = request.form.get('detector', 'auto').lower()
-    valid_detectors = ['chord-cnn-lstm', 'btc-sl', 'btc-pl', 'auto']
-    if detector not in valid_detectors:
-        return False, f"Invalid detector '{detector}'. Must be one of: {', '.join(valid_detectors)}", {}
-
-    # Validate chord_dict parameter
-    chord_dict = request.form.get('chord_dict', None)
-
-    params = {
-        'firebase_url': firebase_url,
-        'detector': detector,
-        'chord_dict': chord_dict
-    }
-
-    return True, None, params
-
-
 def validate_chord_dict_for_detector(chord_dict: str, detector: str) -> Tuple[bool, Optional[str]]:
     """
     Validate that a chord dictionary is supported by a detector.

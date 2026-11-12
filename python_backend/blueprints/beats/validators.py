@@ -51,35 +51,6 @@ def validate_beat_detection_request() -> Tuple[bool, Optional[str], Optional[Fil
     return True, None, file, params
 
 
-def validate_firebase_beat_detection_request() -> Tuple[bool, Optional[str], Dict[str, Any]]:
-    """
-    Validate a Firebase beat detection request.
-
-    Returns:
-        Tuple containing:
-        - bool: Whether validation passed
-        - Optional[str]: Error message if validation failed
-        - Dict[str, Any]: Validated parameters
-    """
-    # Check for Firebase URL
-    firebase_url = request.form.get('firebase_url')
-    if not firebase_url:
-        return False, "No Firebase URL provided", {}
-
-    # Validate detector parameter
-    detector = request.form.get('detector', 'auto').lower()
-    valid_detectors = ['beat-transformer', 'madmom', 'librosa', 'auto']
-    if detector not in valid_detectors:
-        return False, f"Invalid detector '{detector}'. Must be one of: {', '.join(valid_detectors)}", {}
-
-    params = {
-        'firebase_url': firebase_url,
-        'detector': detector
-    }
-
-    return True, None, params
-
-
 def get_file_size_mb(file: FileStorage) -> float:
     """
     Get file size in megabytes.
