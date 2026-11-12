@@ -89,7 +89,7 @@ Analyses of files you have already processed are served from the local cache, so
 | **Disk space** | plan for ~13–15 GB free. Measured on a working install: Python environment ≈7.6 GB (the bulk — PyTorch and TensorFlow), frontend packages ≈1 GB, model weights ≈190 MB, production build cache ≈3.6 GB |
 | **GPU** | not required — everything runs on the CPU |
 
-Optional: **Git LFS** if you also want the SongFormer checkpoints (skipped by default), **Docker** for the melody service.
+Optional: **Git LFS** if you also want the SongFormer checkpoints (skipped by default — without it the three checkpoint files are 134-byte LFS pointers, and nothing else reads them), **Docker** for the melody service.
 
 ## Installation
 
@@ -103,11 +103,11 @@ cd ChordMiniApp-Local
 
 Open **<http://127.0.0.1:3000>**. `Ctrl+C` stops the frontend and the backend together.
 
-The first run takes a few minutes and does all of the following:
+The first run takes five to fifteen minutes depending on your connection — the submodule download alone was about ten minutes on a slow line — and does all of the following:
 
 1. creates `.env.local` from `.env.example` (the defaults are correct for a local run),
 2. downloads the three model submodules (~190 MB in total),
-3. creates `python_backend/.venv` and installs the backend requirements, falling back to the `spleeter`-free set if the full install fails,
+3. creates `python_backend/.venv` and installs the backend requirements, falling back to the `spleeter`-free set if the full install fails (the fallback only drops 5-stem separation; beat and chord analysis are unaffected),
 4. installs the frontend packages (`npm ci`),
 5. starts the Flask backend on `5001` and waits for `/health`, then builds the frontend and serves it on `3000` (`--prod`), or starts the dev server instead.
 
