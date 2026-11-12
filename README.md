@@ -285,7 +285,7 @@ Selected backend endpoints:
 | `POST` | `/api/audio/store` | Store audio in the content-addressed store |
 | `GET`, `DELETE` | `/api/audio/<audio_id>` | Fetch or delete one stored audio entry |
 
-Some routes inherited from upstream (for example those with a `-firebase` suffix) are still registered for compatibility, but this frontend does not call them.
+Upstream's cloud-only routes — the `-firebase` beat and chord endpoints, YouTube search, and the YouTube/audio blueprints — were removed in this fork; the table above is everything the backend registers.
 
 ## Project structure
 
